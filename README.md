@@ -1,5 +1,8 @@
 # 🔒 SecureVault for Mac
 
+```markdown
+![Screenshot van de applicatie](screenshot.png)
+
 **SecureVault** is een moderne, minimalistische desktopapplicatie voor macOS waarmee je eenvoudig mappen kunt beveiligen in versleutelde kluizen (`.dmg` disk images).
 
 De applicatie is geschreven in **Python** met **PySide6 (Qt)** en maakt gebruik van native macOS-beveiligingstools (`hdiutil`) voor robuuste **AES‑256 encryptie**. Geen externe encryptielibraries, geen cloud, geen vendor lock‑in — alles blijft lokaal op je Mac.
