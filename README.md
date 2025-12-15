@@ -1,6 +1,5 @@
 # 🔒 SecureVault for Mac
 
-```markdown
 ![Screenshot van de applicatie](screenshot.png)
 
 **SecureVault** is een moderne, minimalistische desktopapplicatie voor macOS waarmee je eenvoudig mappen kunt beveiligen in versleutelde kluizen (`.dmg` disk images).
