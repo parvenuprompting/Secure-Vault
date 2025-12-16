@@ -1,13 +1,13 @@
 import os
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                                QLineEdit, QPushButton, QTextEdit, QFileDialog, 
-                               QMessageBox, QProgressBar, QToolButton) # QToolButton toegevoegd
-from PySide6.QtCore import QThread, Signal, Qt
-from PySide6.QtGui import QIcon, QFont
+                               QMessageBox, QProgressBar, QToolButton)
+from PySide6.QtCore import QThread, Signal, Qt, QSize
+from PySide6.QtGui import QIcon, QPixmap, QPainter # <--- QPainter toegevoegd
 
 from src.vault_engine import VaultEngine
 
-# ... (WorkerThread klasse blijft ongewijzigd) ...
+# --- WORKER THREAD ---
 class WorkerThread(QThread):
     log_signal = Signal(str)
     finish_signal = Signal(bool, str)
@@ -27,19 +27,21 @@ class WorkerThread(QThread):
         )
         self.finish_signal.emit(success, msg)
 
-# ... (ModernInput klasse blijft ongewijzigd) ...
+# --- HELPER WIDGET ---
 class ModernInput(QWidget):
     def __init__(self, label_text, browse_func=None, is_password=False):
         super().__init__()
         layout = QVBoxLayout()
         layout.setContentsMargins(0,0,0,10)
+        
         self.lbl = QLabel(label_text)
         self.lbl.setObjectName("inputLabel")
         layout.addWidget(self.lbl)
         
         row = QHBoxLayout()
         self.input = QLineEdit()
-        if is_password: self.input.setEchoMode(QLineEdit.EchoMode.Password)
+        if is_password: 
+            self.input.setEchoMode(QLineEdit.EchoMode.Password)
         row.addWidget(self.input)
         
         if browse_func:
@@ -56,11 +58,27 @@ class ModernInput(QWidget):
     def setEnabled(self, v): self.input.setEnabled(v)
 
 
+# --- HOOFD APPLICATIE ---
 class KluisApp(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SecureVault Pro")
-        self.resize(500, 650) # Iets langer gemaakt voor comfort
+        self.resize(500, 650)
+        self.setObjectName("MainWindow")
+
+        # 1. Paden bepalen
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(current_dir)
+        
+        self.path_logo = os.path.join(project_root, 'assets', 'logo.png')
+        self.path_bg = os.path.join(project_root, 'assets', 'background.png')
+
+        # Debug check (zie je in de terminal)
+        if os.path.exists(self.path_bg):
+            print(f"✅ Achtergrond gevonden: {self.path_bg}")
+        else:
+            print(f"❌ Achtergrond NIET gevonden op: {self.path_bg}")
+
         self.setup_ui()
         self.apply_styles()
 
@@ -68,32 +86,35 @@ class KluisApp(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(30, 30, 30, 30)
 
-        # --- HEADER (Titel + Help Knop) ---
+        # HEADER
         header_layout = QHBoxLayout()
+        logo_label = QLabel()
+        if os.path.exists(self.path_logo):
+            pixmap = QPixmap(self.path_logo)
+            scaled_pixmap = pixmap.scaled(QSize(40, 40), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo_label.setPixmap(scaled_pixmap)
         
-        # Titel
         title = QLabel("SecureVault")
         title.setObjectName("title")
-        title.setAlignment(Qt.AlignCenter)
+        title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         
-        # Help Knop
         btn_help = QToolButton()
         btn_help.setText("?")
         btn_help.setCursor(Qt.PointingHandCursor)
         btn_help.setObjectName("helpBtn")
-        btn_help.setToolTip("Bekijk handleiding")
         btn_help.clicked.connect(self.show_help)
 
-        # We gebruiken stretches om de titel in het midden te houden
-        header_layout.addWidget(btn_help) # Een dummy knop links voor balans (optioneel, nu weggelaten)
+        title_center_layout = QHBoxLayout()
+        title_center_layout.addWidget(logo_label)
+        title_center_layout.addSpacing(10)
+        title_center_layout.addWidget(title)
+        
+        header_layout.addLayout(title_center_layout)
         header_layout.addStretch()
-        header_layout.addWidget(title)
-        header_layout.addStretch()
-        header_layout.addWidget(btn_help) # De echte knop rechts
+        header_layout.addWidget(btn_help)
 
         layout.addLayout(header_layout)
-        layout.addSpacing(10)
-        # ----------------------------------
+        layout.addSpacing(20)
 
         # Inputs
         self.inp_source = ModernInput("WELKE MAP?", self.browse_source)
@@ -110,7 +131,7 @@ class KluisApp(QWidget):
         self.inp_pass = ModernInput("WACHTWOORD", is_password=True)
         layout.addWidget(self.inp_pass)
 
-        # Action
+        # Actie
         layout.addSpacing(20)
         self.btn_start = QPushButton("START BEVEILIGING")
         self.btn_start.setObjectName("actionBtn")
@@ -118,13 +139,13 @@ class KluisApp(QWidget):
         self.btn_start.clicked.connect(self.start_process)
         layout.addWidget(self.btn_start)
 
+        # Progress & Log
         self.progress = QProgressBar()
         self.progress.setTextVisible(False)
         self.progress.setRange(0, 0)
         self.progress.hide()
         layout.addWidget(self.progress)
 
-        # Log
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setPlaceholderText("Status log verschijnt hier...")
@@ -133,34 +154,95 @@ class KluisApp(QWidget):
         self.setLayout(layout)
 
     def apply_styles(self):
+        # We hebben hier GEEN background image meer nodig in de CSS
+        # Dat doet de paintEvent functie nu.
         self.setStyleSheet("""
-            QWidget { background: #1E1E1E; color: #EEE; font-family: ".AppleSystemUIFont"; }
+            QWidget { color: #EEE; font-family: ".AppleSystemUIFont"; }
             
-            QLabel#title { font-size: 24px; font-weight: bold; margin-bottom: 5px; color: #FFF; }
-            QLabel#inputLabel { color: #AAA; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+            QLabel#title { font-size: 24px; font-weight: bold; color: #FFF; }
+            QLabel#inputLabel { color: #CCC; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; }
             
-            QLineEdit { background: #2D2D2D; border: 1px solid #444; padding: 10px; border-radius: 6px; color: #FFF; font-size: 13px; }
-            QLineEdit:focus { border: 1px solid #4CAF50; }
+            /* Inputs (Transparant) */
+            QLineEdit { 
+                background: rgba(30, 30, 30, 0.7); 
+                border: 1px solid #555; 
+                padding: 10px; 
+                border-radius: 6px; 
+                color: #FFF; 
+                font-size: 13px; 
+            }
+            QLineEdit:focus { border: 1px solid #4CAF50; background: rgba(30, 30, 30, 0.9); }
             
-            QPushButton { background: #444; border: none; padding: 8px; border-radius: 6px; }
+            /* Knoppen */
+            QPushButton { background: rgba(68, 68, 68, 0.85); border: none; padding: 8px; border-radius: 6px; }
             
-            /* De groene actie knop */
-            QPushButton#actionBtn { background: #4CAF50; color: #FFF; font-weight: bold; padding: 12px; font-size: 14px; border-radius: 8px; }
-            QPushButton#actionBtn:hover { background: #45a049; }
-            QPushButton#actionBtn:pressed { background: #3e8e41; }
+            QPushButton#actionBtn { 
+                background: rgba(76, 175, 80, 0.9); 
+                color: #FFF; 
+                font-weight: bold; 
+                padding: 12px; 
+                font-size: 14px; 
+                border-radius: 8px; 
+            }
+            QPushButton#actionBtn:hover { background: rgba(69, 160, 73, 1.0); }
             
-            /* Het Help knopje */
-            QToolButton#helpBtn { background: #333; color: #AAA; border-radius: 12px; font-weight: bold; width: 24px; height: 24px; border: 1px solid #444; }
-            QToolButton#helpBtn:hover { background: #555; color: #FFF; border-color: #666; }
+            QToolButton#helpBtn { 
+                background: rgba(51, 51, 51, 0.8); 
+                color: #AAA; 
+                border-radius: 12px; 
+                font-weight: bold; 
+                width: 24px; 
+                height: 24px; 
+                border: 1px solid #555; 
+            }
+            QToolButton#helpBtn:hover { background: rgba(85, 85, 85, 1.0); color: #FFF; border-color: #777; }
 
-            QTextEdit { background: #111; border: 1px solid #333; color: #0F0; font-family: "Menlo"; font-size: 11px; border-radius: 6px; margin-top: 10px; }
+            QTextEdit { 
+                background: rgba(10, 10, 10, 0.7); 
+                border: 1px solid #333; 
+                color: #0F0; 
+                font-family: "Menlo"; 
+                font-size: 11px; 
+                border-radius: 6px; 
+                margin-top: 10px; 
+            }
             
-            QProgressBar { background: #222; border-radius: 4px; height: 6px; margin-top: 10px; }
+            QProgressBar { background: rgba(34, 34, 34, 0.8); border-radius: 4px; height: 6px; margin-top: 10px; }
             QProgressBar::chunk { background: #4CAF50; border-radius: 4px; }
         """)
 
+    # --- HIER GEBEURT DE MAGIE (Aangepast) ---
+    def paintEvent(self, event):
+        """Tekent de achtergrond 'fixed' (Aspect Fill / Cover)"""
+        # Eerst de standaard dingen tekenen (belangrijk!)
+        super().paintEvent(event)
+        
+        if os.path.exists(self.path_bg):
+            painter = QPainter(self)
+            pixmap = QPixmap(self.path_bg)
+            
+            # 1. Hoe groot is het venster nu?
+            target_size = self.size()
+            
+            # 2. Schaal het plaatje zodat het het HELE venster bedekt,
+            # maar wel zijn verhoudingen behoudt (niet uitrekken).
+            # 'Qt.KeepAspectRatioByExpanding' is de sleutel hier.
+            scaled_pixmap = pixmap.scaled(
+                target_size, 
+                Qt.KeepAspectRatioByExpanding, 
+                Qt.SmoothTransformation
+            )
+            
+            # 3. Bereken het midden. Omdat het geschaalde plaatje nu misschien
+            # groter is dan het venster (breder of hoger), moeten we uitrekenen
+            # waar we moeten beginnen met tekenen om het te centreren.
+            x = (target_size.width() - scaled_pixmap.width()) // 2
+            y = (target_size.height() - scaled_pixmap.height()) // 2
+            
+            # 4. Teken het geschaalde, gecentreerde plaatje
+            painter.drawPixmap(x, y, scaled_pixmap)
+
     def show_help(self):
-        """Toont de handleiding in een pop-up"""
         msg = QMessageBox(self)
         msg.setWindowTitle("Handleiding")
         msg.setText("<b>Hoe werkt SecureVault?</b>")
