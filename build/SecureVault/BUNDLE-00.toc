@@ -1,3 +1,0 @@
-([('SecureVault',
-   '/Users/T/Desktop/EncryptieTest/dist/SecureVault',
-   'EXECUTABLE')],)
