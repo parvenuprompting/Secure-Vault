@@ -1,0 +1,14 @@
+# Negeer PyInstaller bouwmappen
+build/
+dist/
+*.spec
+
+# Negeer Python cache
+__pycache__/
+
+# Negeer systeem bestanden
+.DS_Store
+
+# Negeer virtuele omgevingen (als je die ooit gebruikt)
+venv/
+env/
