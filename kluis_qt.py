@@ -339,6 +339,12 @@ class KluisApp(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    # --- NEW: Icoon instellen ---
+    # We zoeken het pad naar logo.png in dezelfde map als het script
+    icon_path = os.path.join(os.path.dirname(__file__), 'logo.png')
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
+    # ---------------------------
     window = KluisApp()
     window.show()
     sys.exit(app.exec())
