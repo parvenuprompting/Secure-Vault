@@ -88,7 +88,12 @@ class VaultEngine:
             with self.mount_context(dmg_temp, mount_point):
                 # We zitten nu in de veilige zone. Als rsync faalt, wordt er toch gedetached.
                 log("📂 Bezig met kopiëren (rsync)...")
-                res = subprocess.run(['rsync', '-av', f'{source}/', mount_point], capture_output=True, text=True)
+                
+                # --- FIX: Verwijder de trailing slash zodat de MAP wordt gekopieerd, niet alleen de inhoud ---
+                # rstrip('/') zorgt ervoor dat "/pad/naar/map/" verandert in "/pad/naar/map"
+                safe_source = source.rstrip('/')
+                
+                res = subprocess.run(['rsync', '-av', safe_source, mount_point], capture_output=True, text=True)
                 if res.returncode != 0:
                     raise Exception(f"Rsync fout: {res.stderr}")
             

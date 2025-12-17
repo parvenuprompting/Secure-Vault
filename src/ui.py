@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QLineEdit, QPushButton, QTextEdit, QFileDialog, 
                                QMessageBox, QProgressBar, QToolButton)
 from PySide6.QtCore import QThread, Signal, Qt, QSize
-from PySide6.QtGui import QIcon, QPixmap, QPainter # <--- QPainter toegevoegd
+from PySide6.QtGui import QIcon, QPixmap, QPainter
 
 from src.vault_engine import VaultEngine
 
@@ -73,7 +73,7 @@ class KluisApp(QWidget):
         self.path_logo = os.path.join(project_root, 'assets', 'logo.png')
         self.path_bg = os.path.join(project_root, 'assets', 'background.png')
 
-        # Debug check (zie je in de terminal)
+        # Debug check
         if os.path.exists(self.path_bg):
             print(f"✅ Achtergrond gevonden: {self.path_bg}")
         else:
@@ -154,15 +154,18 @@ class KluisApp(QWidget):
         self.setLayout(layout)
 
     def apply_styles(self):
-        # We hebben hier GEEN background image meer nodig in de CSS
-        # Dat doet de paintEvent functie nu.
         self.setStyleSheet("""
             QWidget { color: #EEE; font-family: ".AppleSystemUIFont"; }
+            
+            /* --- FIX: Specifieke styling voor Popups (QMessageBox) --- */
+            QMessageBox { background-color: #2b2b2b; }
+            QMessageBox QLabel { color: #FFF; }
+            QMessageBox QPushButton { background-color: #444; color: #FFF; padding: 5px 15px; }
             
             QLabel#title { font-size: 24px; font-weight: bold; color: #FFF; }
             QLabel#inputLabel { color: #CCC; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; }
             
-            /* Inputs (Transparant) */
+            /* Inputs */
             QLineEdit { 
                 background: rgba(30, 30, 30, 0.7); 
                 border: 1px solid #555; 
@@ -211,35 +214,23 @@ class KluisApp(QWidget):
             QProgressBar::chunk { background: #4CAF50; border-radius: 4px; }
         """)
 
-    # --- HIER GEBEURT DE MAGIE (Aangepast) ---
     def paintEvent(self, event):
-        """Tekent de achtergrond 'fixed' (Aspect Fill / Cover)"""
-        # Eerst de standaard dingen tekenen (belangrijk!)
         super().paintEvent(event)
         
         if os.path.exists(self.path_bg):
             painter = QPainter(self)
             pixmap = QPixmap(self.path_bg)
             
-            # 1. Hoe groot is het venster nu?
             target_size = self.size()
-            
-            # 2. Schaal het plaatje zodat het het HELE venster bedekt,
-            # maar wel zijn verhoudingen behoudt (niet uitrekken).
-            # 'Qt.KeepAspectRatioByExpanding' is de sleutel hier.
             scaled_pixmap = pixmap.scaled(
                 target_size, 
                 Qt.KeepAspectRatioByExpanding, 
                 Qt.SmoothTransformation
             )
             
-            # 3. Bereken het midden. Omdat het geschaalde plaatje nu misschien
-            # groter is dan het venster (breder of hoger), moeten we uitrekenen
-            # waar we moeten beginnen met tekenen om het te centreren.
             x = (target_size.width() - scaled_pixmap.width()) // 2
             y = (target_size.height() - scaled_pixmap.height()) // 2
             
-            # 4. Teken het geschaalde, gecentreerde plaatje
             painter.drawPixmap(x, y, scaled_pixmap)
 
     def show_help(self):
