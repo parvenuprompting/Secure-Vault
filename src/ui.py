@@ -157,10 +157,11 @@ class KluisApp(QWidget):
         self.setStyleSheet("""
             QWidget { color: #EEE; font-family: ".AppleSystemUIFont"; }
             
-            /* --- FIX: Specifieke styling voor Popups (QMessageBox) --- */
+            /* Popup Styling */
             QMessageBox { background-color: #2b2b2b; }
-            QMessageBox QLabel { color: #FFF; }
-            QMessageBox QPushButton { background-color: #444; color: #FFF; padding: 5px 15px; }
+            QMessageBox QLabel { color: #FFF; font-size: 13px; }
+            QMessageBox QPushButton { background-color: #444; color: #FFF; padding: 6px 16px; border-radius: 4px; }
+            QMessageBox QPushButton:hover { background-color: #555; }
             
             QLabel#title { font-size: 24px; font-weight: bold; color: #FFF; }
             QLabel#inputLabel { color: #CCC; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; }
@@ -283,9 +284,11 @@ class KluisApp(QWidget):
     def on_finish(self, success, msg):
         self.toggle_ui(True)
         if success:
-            QMessageBox.information(self, "Gelukt", msg)
+            # --- AANGEPAST: Duidelijke tekst ---
+            text = f"De kluis is succesvol aangemaakt!\n\nJe vindt hem hier:\n{msg}"
+            QMessageBox.information(self, "Voltooid", text)
         else:
-            QMessageBox.critical(self, "Fout", msg)
+            QMessageBox.critical(self, "Fout", f"Er is iets misgegaan:\n{msg}")
 
     def toggle_ui(self, enable):
         self.btn_start.setEnabled(enable)
