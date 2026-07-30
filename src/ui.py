@@ -1,145 +1,265 @@
+from __future__ import annotations
+
 import os
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                               QLineEdit, QPushButton, QTextEdit, QFileDialog, 
-                               QMessageBox, QProgressBar, QToolButton)
-from PySide6.QtCore import QThread, Signal, Qt, QSize
-from PySide6.QtGui import QIcon, QPixmap, QPainter
+import subprocess
+import threading
+from typing import Optional
+
+from PySide6.QtCore import QSize, Qt, QThread, Signal
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPainter, QPixmap
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QTabWidget,
+    QTextEdit,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.vault_engine import VaultEngine
 
-# --- WORKER THREAD ---
+
+# --- WORKER THREAD VOOR AANMAKEN ---
 class WorkerThread(QThread):
     log_signal = Signal(str)
     finish_signal = Signal(bool, str)
 
-    def __init__(self, source, dest, name, password):
+    def __init__(
+        self,
+        source: str,
+        dest: str,
+        name: str,
+        password: str,
+        format_type: str = "UDZO",
+    ):
         super().__init__()
         self.source = source
         self.dest = dest
         self.name = name
         self.password = password
+        self.format_type = format_type
+        self.cancel_event = threading.Event()
         self.engine = VaultEngine()
 
-    def run(self):
+    def cancel(self) -> None:
+        self.cancel_event.set()
+
+    def run(self) -> None:
         success, msg = self.engine.create_vault(
-            self.source, self.dest, self.name, self.password, 
-            progress_callback=lambda m: self.log_signal.emit(m)
+            self.source,
+            self.dest,
+            self.name,
+            self.password,
+            format_type=self.format_type,
+            progress_callback=lambda m: self.log_signal.emit(m),
+            cancel_event=self.cancel_event,
         )
         self.finish_signal.emit(success, msg)
 
-# --- HELPER WIDGET ---
+
+# --- HELPER WIDGET FOR INPUTS ---
 class ModernInput(QWidget):
-    def __init__(self, label_text, browse_func=None, is_password=False):
+    text_changed_signal = Signal(str)
+
+    def __init__(
+        self,
+        label_text: str,
+        browse_func: Optional[object] = None,
+        is_password: bool = False,
+        tooltip: str = "",
+    ):
         super().__init__()
         layout = QVBoxLayout()
-        layout.setContentsMargins(0,0,0,10)
-        
+        layout.setContentsMargins(0, 0, 0, 8)
+        layout.setSpacing(4)
+
         self.lbl = QLabel(label_text)
         self.lbl.setObjectName("inputLabel")
+        if tooltip:
+            self.lbl.setToolTip(tooltip)
         layout.addWidget(self.lbl)
-        
+
         row = QHBoxLayout()
+        row.setSpacing(6)
+
         self.input = QLineEdit()
-        if is_password: 
+        if tooltip:
+            self.input.setToolTip(tooltip)
+
+        if is_password:
             self.input.setEchoMode(QLineEdit.EchoMode.Password)
+
+        self.input.textChanged.connect(lambda t: self.text_changed_signal.emit(t))
         row.addWidget(self.input)
-        
+
+        if is_password:
+            self.btn_toggle = QToolButton()
+            self.btn_toggle.setText("👁")
+            self.btn_toggle.setToolTip("Wachtwoord tonen / verbergen")
+            self.btn_toggle.setCursor(Qt.PointingHandCursor)
+            self.btn_toggle.setObjectName("togglePwBtn")
+            self.btn_toggle.clicked.connect(self.toggle_password_visibility)
+            row.addWidget(self.btn_toggle)
+
         if browse_func:
-            btn = QPushButton("...")
-            btn.setFixedWidth(40)
-            btn.clicked.connect(browse_func)
-            row.addWidget(btn)
-        
+            btn_browse = QPushButton("Bladeren...")
+            btn_browse.setToolTip("Selecteer via de bestandskiezer")
+            btn_browse.setCursor(Qt.PointingHandCursor)
+            btn_browse.setObjectName("browseBtn")
+            btn_browse.clicked.connect(browse_func)
+            row.addWidget(btn_browse)
+
         layout.addLayout(row)
         self.setLayout(layout)
 
-    def text(self): return self.input.text()
-    def setText(self, t): self.input.setText(t)
-    def setEnabled(self, v): self.input.setEnabled(v)
-
-
-# --- HOOFD APPLICATIE ---
-class KluisApp(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("SecureVault Pro")
-        self.resize(500, 650)
-        self.setObjectName("MainWindow")
-
-        # 1. Paden bepalen
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(current_dir)
-        
-        self.path_logo = os.path.join(project_root, 'assets', 'logo.png')
-        self.path_bg = os.path.join(project_root, 'assets', 'background.png')
-
-        # Debug check
-        if os.path.exists(self.path_bg):
-            print(f"✅ Achtergrond gevonden: {self.path_bg}")
+    def toggle_password_visibility(self) -> None:
+        if self.input.echoMode() == QLineEdit.EchoMode.Password:
+            self.input.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.btn_toggle.setText("🙈")
         else:
-            print(f"❌ Achtergrond NIET gevonden op: {self.path_bg}")
+            self.input.setEchoMode(QLineEdit.EchoMode.Password)
+            self.btn_toggle.setText("👁")
 
+    def text(self) -> str:
+        return self.input.text()
+
+    def setText(self, t: str) -> None:
+        self.input.setText(t)
+
+    def setEnabled(self, v: bool) -> None:
+        self.input.setEnabled(v)
+
+    def set_border_status(self, status: Optional[str]) -> None:
+        if status == "valid":
+            self.input.setStyleSheet(
+                "border: 1px solid #4CAF50; background: rgba(30, 45, 30, 0.8);"
+            )
+        elif status == "invalid":
+            self.input.setStyleSheet(
+                "border: 1px solid #FF5252; background: rgba(45, 30, 30, 0.8);"
+            )
+        else:
+            self.input.setStyleSheet("")
+
+
+# --- WIDGET TAB 1: KLUIS AANMAKEN ---
+class CreateVaultTab(QWidget):
+    def __init__(self, parent_app: KluisApp):
+        super().__init__()
+        self.app = parent_app
         self.setup_ui()
-        self.apply_styles()
 
-    def setup_ui(self):
+    def setup_ui(self) -> None:
         layout = QVBoxLayout()
-        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setContentsMargins(10, 10, 10, 10)
 
-        # HEADER
-        header_layout = QHBoxLayout()
-        logo_label = QLabel()
-        if os.path.exists(self.path_logo):
-            pixmap = QPixmap(self.path_logo)
-            scaled_pixmap = pixmap.scaled(QSize(40, 40), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            logo_label.setPixmap(scaled_pixmap)
-        
-        title = QLabel("SecureVault")
-        title.setObjectName("title")
-        title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        
-        btn_help = QToolButton()
-        btn_help.setText("?")
-        btn_help.setCursor(Qt.PointingHandCursor)
-        btn_help.setObjectName("helpBtn")
-        btn_help.clicked.connect(self.show_help)
-
-        title_center_layout = QHBoxLayout()
-        title_center_layout.addWidget(logo_label)
-        title_center_layout.addSpacing(10)
-        title_center_layout.addWidget(title)
-        
-        header_layout.addLayout(title_center_layout)
-        header_layout.addStretch()
-        header_layout.addWidget(btn_help)
-
-        layout.addLayout(header_layout)
-        layout.addSpacing(20)
-
-        # Inputs
-        self.inp_source = ModernInput("WELKE MAP?", self.browse_source)
+        self.inp_source = ModernInput(
+            "WELKE MAP?",
+            self.browse_source,
+            tooltip="Selecteer de map die je wilt versleutelen (of sleep een map naar het venster)",
+        )
         layout.addWidget(self.inp_source)
-        
-        self.inp_dest = ModernInput("WAAR OPSLAAN?", self.browse_dest)
+
+        self.inp_dest = ModernInput(
+            "WAAR OPSLAAN?",
+            self.browse_dest,
+            tooltip="Locatie waar het kluisbestand wordt opgeslagen",
+        )
         self.inp_dest.setText(os.path.expanduser("~/Desktop"))
         layout.addWidget(self.inp_dest)
 
-        self.inp_name = ModernInput("NAAM KLUIS")
+        self.inp_name = ModernInput(
+            "NAAM KLUIS", tooltip="Bestandsnaam van de kluis"
+        )
         self.inp_name.setText("MijnKluis")
         layout.addWidget(self.inp_name)
 
-        self.inp_pass = ModernInput("WACHTWOORD", is_password=True)
+        # FORMAT SELECTION (UDZO / UDRW / UDSB)
+        lbl_format = QLabel("KLUIS TYPE (INDELING)")
+        lbl_format.setObjectName("inputLabel")
+        layout.addWidget(lbl_format)
+
+        self.combo_format = QComboBox()
+        self.combo_format.setObjectName("formatCombo")
+        self.combo_format.addItem(
+            "📦 Gecomprimeerd (Alleen-Lezen .dmg) - Kleinste omvang", "UDZO"
+        )
+        self.combo_format.addItem(
+            "📝 Lees / Schrijf (Aanpasbaar .dmg) - Direct bewerkbaar", "UDRW"
+        )
+        self.combo_format.addItem(
+            "🚀 Meegroeiend (Sparse Bundle .sparsebundle) - Groeit automatisch mee",
+            "UDSB",
+        )
+        self.combo_format.setToolTip(
+            "Kies 'Meegroeiend' of 'Lees/Schrijf' als je achteraf in Finder bestanden wilt toevoegen of verwijderen."
+        )
+        layout.addWidget(self.combo_format)
+        layout.addSpacing(6)
+
+        # Wachtwoord inputs
+        self.inp_pass = ModernInput(
+            "WACHTWOORD",
+            is_password=True,
+            tooltip="Minimaal 8 tekens. Gebruik cijfers en speciale tekens voor extra veiligheid.",
+        )
+        self.inp_pass.text_changed_signal.connect(self.validate_passwords)
         layout.addWidget(self.inp_pass)
 
-        # Actie
-        layout.addSpacing(20)
-        self.btn_start = QPushButton("START BEVEILIGING")
+        # Wachtwoordsterkte indicator
+        self.strength_bar = QProgressBar()
+        self.strength_bar.setRange(0, 100)
+        self.strength_bar.setValue(0)
+        self.strength_bar.setFixedHeight(5)
+        self.strength_bar.setTextVisible(False)
+        self.strength_bar.setObjectName("strengthBar")
+        layout.addWidget(self.strength_bar)
+
+        self.lbl_strength = QLabel("")
+        self.lbl_strength.setObjectName("strengthLabel")
+        layout.addWidget(self.lbl_strength)
+
+        self.inp_pass_confirm = ModernInput(
+            "BEVESTIG WACHTWOORD",
+            is_password=True,
+            tooltip="Herhaal het wachtwoord ter controle",
+        )
+        self.inp_pass_confirm.text_changed_signal.connect(self.validate_passwords)
+        layout.addWidget(self.inp_pass_confirm)
+
+        self.lbl_match = QLabel("")
+        self.lbl_match.setObjectName("matchLabel")
+        layout.addWidget(self.lbl_match)
+
+        # BUTTONS
+        layout.addSpacing(6)
+        btn_row = QHBoxLayout()
+
+        self.btn_start = QPushButton("🔒 START BEVEILIGING")
         self.btn_start.setObjectName("actionBtn")
         self.btn_start.setCursor(Qt.PointingHandCursor)
         self.btn_start.clicked.connect(self.start_process)
-        layout.addWidget(self.btn_start)
+        btn_row.addWidget(self.btn_start)
 
-        # Progress & Log
+        self.btn_cancel = QPushButton("❌ ANNULEREN")
+        self.btn_cancel.setObjectName("cancelBtn")
+        self.btn_cancel.setCursor(Qt.PointingHandCursor)
+        self.btn_cancel.hide()
+        self.btn_cancel.clicked.connect(self.cancel_process)
+        btn_row.addWidget(self.btn_cancel)
+
+        layout.addLayout(btn_row)
+
+        # PROGRESS & LOG
         self.progress = QProgressBar()
         self.progress.setTextVisible(False)
         self.progress.setRange(0, 0)
@@ -148,50 +268,488 @@ class KluisApp(QWidget):
 
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setPlaceholderText("Status log verschijnt hier...")
+        self.log_view.setPlaceholderText(
+            "Status log verschijnt hier... (of sleep een map naar de app)"
+        )
         layout.addWidget(self.log_view)
 
         self.setLayout(layout)
 
-    def apply_styles(self):
-        self.setStyleSheet("""
-            QWidget { color: #EEE; font-family: ".AppleSystemUIFont"; }
+    def browse_source(self) -> None:
+        d = QFileDialog.getExistingDirectory(self, "Kies bronmap")
+        if d:
+            self.inp_source.setText(d)
+
+    def browse_dest(self) -> None:
+        d = QFileDialog.getExistingDirectory(self, "Kies doelmap")
+        if d:
+            self.inp_dest.setText(d)
+
+    def validate_passwords(self) -> None:
+        pw = self.inp_pass.text()
+        pw_confirm = self.inp_pass_confirm.text()
+
+        if not pw:
+            self.strength_bar.setValue(0)
+            self.lbl_strength.setText("")
+            self.inp_pass.set_border_status(None)
+            self.inp_pass_confirm.set_border_status(None)
+            self.lbl_match.setText("")
+            return
+
+        is_valid, msg, score = VaultEngine.check_password_strength(pw)
+        self.strength_bar.setValue(score)
+
+        if score < 50:
+            self.strength_bar.setStyleSheet(
+                "QProgressBar#strengthBar::chunk { background: #FF5252; }"
+            )
+            self.lbl_strength.setText(f"Sterkte: {msg}")
+            self.lbl_strength.setStyleSheet("color: #FF5252;")
+        elif score < 75:
+            self.strength_bar.setStyleSheet(
+                "QProgressBar#strengthBar::chunk { background: #FFC107; }"
+            )
+            self.lbl_strength.setText(f"Sterkte: {msg}")
+            self.lbl_strength.setStyleSheet("color: #FFC107;")
+        else:
+            self.strength_bar.setStyleSheet(
+                "QProgressBar#strengthBar::chunk { background: #4CAF50; }"
+            )
+            self.lbl_strength.setText(f"Sterkte: {msg}")
+            self.lbl_strength.setStyleSheet("color: #4CAF50;")
+
+        if is_valid:
+            self.inp_pass.set_border_status("valid")
+        else:
+            self.inp_pass.set_border_status("invalid")
+
+        if pw_confirm:
+            if pw == pw_confirm:
+                self.inp_pass_confirm.set_border_status("valid")
+                self.lbl_match.setText("✅ Wachtwoorden komen overeen")
+                self.lbl_match.setStyleSheet("color: #4CAF50;")
+            else:
+                self.inp_pass_confirm.set_border_status("invalid")
+                self.lbl_match.setText("❌ Wachtwoorden komen niet overeen")
+                self.lbl_match.setStyleSheet("color: #FF5252;")
+        else:
+            self.inp_pass_confirm.set_border_status(None)
+            self.lbl_match.setText("")
+
+    def log(self, msg: str) -> None:
+        self.log_view.append(msg)
+        sb = self.log_view.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def start_process(self) -> None:
+        source = self.inp_source.text().strip()
+        dest = self.inp_dest.text().strip()
+        name = self.inp_name.text().strip()
+        pw = self.inp_pass.text()
+        pw_confirm = self.inp_pass_confirm.text()
+        format_type = self.combo_format.currentData()
+
+        if not all([source, dest, name, pw, pw_confirm]):
+            QMessageBox.warning(
+                self, "Invoer incompleet", "Vul alle velden in om door te gaan."
+            )
+            return
+
+        if pw != pw_confirm:
+            QMessageBox.warning(
+                self,
+                "Wachtwoord Mismatch",
+                "Het ingestelde wachtwoord en de bevestiging komen niet overeen.",
+            )
+            return
+
+        is_valid_pw, pw_msg, _ = VaultEngine.check_password_strength(pw)
+        if not is_valid_pw:
+            QMessageBox.warning(self, "Zwak Wachtwoord", pw_msg)
+            return
+
+        try:
+            VaultEngine().validate_paths(source, dest)
+        except Exception as e:
+            QMessageBox.critical(self, "Pad Fout", str(e))
+            return
+
+        self.toggle_ui(False)
+        self.log_view.clear()
+        self.btn_cancel.setText("❌ ANNULEREN")
+        self.btn_cancel.setEnabled(True)
+        self.btn_cancel.show()
+
+        self.worker = WorkerThread(source, dest, name, pw, format_type=format_type)
+        self.worker.log_signal.connect(self.log)
+        self.worker.finish_signal.connect(self.on_finish)
+        self.worker.start()
+
+    def cancel_process(self) -> None:
+        if self.worker and self.worker.isRunning():
+            self.log("⚠️ Annulering aangevraagd... Bezig met netjes opruimen...")
+            self.btn_cancel.setText("⌛ Bezig met opruimen...")
+            self.btn_cancel.setEnabled(False)
+            self.worker.cancel()
+
+    def on_finish(self, success: bool, msg: str) -> None:
+        self.btn_cancel.hide()
+        self.toggle_ui(True)
+
+        if success:
+            box = QMessageBox(self)
+            box.setWindowTitle("Voltooid")
+            box.setText("🎉 Kluis Succesvol Aangemaakt")
+            box.setInformativeText(f"De kluis is succesvol aangemaakt!\n\nLocatie:\n{msg}")
+            box.setIcon(QMessageBox.Information)
+
+            btn_finder = box.addButton("Toon in Finder", QMessageBox.ActionRole)
+            box.addButton("Sluiten", QMessageBox.RejectRole)
+
+            box.exec()
+
+            if box.clickedButton() == btn_finder:
+                if os.path.exists(msg):
+                    subprocess.run(["open", "-R", msg])
+        else:
+            QMessageBox.critical(
+                self, "Proces Afgebroken of Fout", f"Details:\n{msg}"
+            )
+
+    def toggle_ui(self, enable: bool) -> None:
+        self.btn_start.setEnabled(enable)
+        self.inp_source.setEnabled(enable)
+        self.inp_dest.setEnabled(enable)
+        self.inp_name.setEnabled(enable)
+        self.inp_pass.setEnabled(enable)
+        self.inp_pass_confirm.setEnabled(enable)
+        self.combo_format.setEnabled(enable)
+        self.progress.setVisible(not enable)
+
+
+# --- WIDGET TAB 2: KLUIS OPENEN & BEHEREN ---
+class ManageVaultTab(QWidget):
+    def __init__(self, parent_app: KluisApp):
+        super().__init__()
+        self.app = parent_app
+        self.engine = VaultEngine()
+        self.setup_ui()
+
+    def setup_ui(self) -> None:
+        layout = QVBoxLayout()
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        # UNLOCK SECTION
+        lbl_section = QLabel("🔓 BESTAANDE KLUIS ONTGRENDELEN")
+        lbl_section.setObjectName("sectionTitle")
+        layout.addWidget(lbl_section)
+
+        self.inp_vault_file = ModernInput(
+            "SELECTEER KLUIS (.dmg of .sparsebundle)",
+            self.browse_vault_file,
+            tooltip="Kies het bestand of pakket dat je wilt ontgrendelen",
+        )
+        layout.addWidget(self.inp_vault_file)
+
+        self.inp_vault_pass = ModernInput(
+            "WACHTWOORD",
+            is_password=True,
+            tooltip="Voer het wachtwoord van deze kluis in",
+        )
+        layout.addWidget(self.inp_vault_pass)
+
+        self.btn_unlock = QPushButton("🔓 ONTGRENDELEN IN FINDER")
+        self.btn_unlock.setObjectName("actionBtn")
+        self.btn_unlock.setCursor(Qt.PointingHandCursor)
+        self.btn_unlock.clicked.connect(self.unlock_vault)
+        layout.addWidget(self.btn_unlock)
+
+        layout.addSpacing(15)
+
+        # ACTIVE MOUNTS SECTION
+        lbl_mounts = QLabel("📌 ACTIEVE GEOPENDE KLUISEN")
+        lbl_mounts.setObjectName("sectionTitle")
+        layout.addWidget(lbl_mounts)
+
+        self.mounts_list = QListWidget()
+        self.mounts_list.setObjectName("mountsList")
+        layout.addWidget(self.mounts_list)
+
+        btn_row = QHBoxLayout()
+        self.btn_refresh = QPushButton("🔄 Vernieuwen")
+        self.btn_refresh.setObjectName("browseBtn")
+        self.btn_refresh.setCursor(Qt.PointingHandCursor)
+        self.btn_refresh.clicked.connect(self.refresh_mounts)
+        btn_row.addWidget(self.btn_refresh)
+
+        self.btn_lock_selected = QPushButton("🔒 Geselecteerde Vergrendelen (Uitwerpen)")
+        self.btn_lock_selected.setObjectName("cancelBtn")
+        self.btn_lock_selected.setCursor(Qt.PointingHandCursor)
+        self.btn_lock_selected.clicked.connect(self.lock_selected_vault)
+        btn_row.addWidget(self.btn_lock_selected)
+
+        layout.addLayout(btn_row)
+        self.setLayout(layout)
+
+        self.refresh_mounts()
+
+    def browse_vault_file(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Selecteer Kluis (.dmg of .sparsebundle)",
+            os.path.expanduser("~/Desktop"),
+            "Kluizen (*.dmg *.sparsebundle);;DMG Bestanden (*.dmg);;Sparse Bundle (*.sparsebundle);;Alle Bestanden (*)",
+            options=QFileDialog.Option.DontResolveSymlinks,
+        )
+
+        # Fallback voor macOS als een .sparsebundle pakket als map wordt geopend
+        if not file_path:
+            d = QFileDialog.getExistingDirectory(
+                self,
+                "Selecteer Sparse Bundle Pakket (.sparsebundle)",
+                os.path.expanduser("~/Desktop"),
+                QFileDialog.Option.DontResolveSymlinks,
+            )
+            if d and d.endswith(".sparsebundle"):
+                file_path = d
+
+        if file_path:
+            self.inp_vault_file.setText(file_path)
+
+    def unlock_vault(self) -> None:
+        vault_path = self.inp_vault_file.text().strip()
+        password = self.inp_vault_pass.text()
+
+        if not vault_path or not password:
+            QMessageBox.warning(
+                self, "Invoer Incompleet", "Selecteer een kluis en voer het wachtwoord in."
+            )
+            return
+
+        success, msg, mount_point = self.engine.mount_vault(vault_path, password)
+
+        if success:
+            self.inp_vault_pass.setText("")
+            self.refresh_mounts()
+            QMessageBox.information(
+                self,
+                "Ontgrendeld",
+                f"🎉 {msg}\n\nDe kluis is geopend in macOS Finder op:\n{mount_point}",
+            )
+            subprocess.run(["open", mount_point])
+        else:
+            QMessageBox.critical(self, "Ontgrendelen Mislukt", msg)
+
+    def refresh_mounts(self) -> None:
+        self.mounts_list.clear()
+        active = self.engine.get_active_mounts()
+
+        if not active:
+            item = QListWidgetItem("Geen actieve geopende kluizen.")
+            item.setFlags(Qt.NoItemFlags)
+            self.mounts_list.addItem(item)
+            return
+
+        for mount_point, vault_path in active.items():
+            vault_name = os.path.basename(vault_path)
+            item_text = f"📂 {vault_name}  -->  {mount_point}"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.UserRole, mount_point)
+            self.mounts_list.addItem(item)
+
+    def lock_selected_vault(self) -> None:
+        current_item = self.mounts_list.currentItem()
+        if not current_item or not current_item.data(Qt.UserRole):
+            QMessageBox.warning(
+                self, "Geen Selectie", "Selecteer eerst een actieve kluis uit de lijst."
+            )
+            return
+
+        mount_point = current_item.data(Qt.UserRole)
+        success, msg = self.engine.unmount_vault(mount_point)
+
+        if success:
+            QMessageBox.information(self, "Vergrendeld", msg)
+            self.refresh_mounts()
+        else:
+            reply = QMessageBox.question(
+                self,
+                "Vergrendelen Mislukt",
+                f"{msg}\n\nWil je het uitwerpen forceren?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if reply == QMessageBox.Yes:
+                f_success, f_msg = self.engine.unmount_vault(mount_point, force=True)
+                if f_success:
+                    QMessageBox.information(self, "Geforceerd Vergrendeld", f_msg)
+                else:
+                    QMessageBox.critical(self, "Fout", f_msg)
+                self.refresh_mounts()
+
+
+# --- HOOFD APPLICATIE VENSTER ---
+class KluisApp(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("SecureVault Pro")
+        self.resize(540, 750)
+        self.setMinimumSize(500, 700)
+        self.setObjectName("MainWindow")
+        self.setAcceptDrops(True)
+
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(current_dir)
+
+        self.path_logo = os.path.join(project_root, "assets", "logo.png")
+        self.path_bg = os.path.join(project_root, "assets", "background.png")
+
+        self.setup_ui()
+        self.apply_styles()
+
+    def setup_ui(self) -> None:
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(24, 24, 24, 24)
+
+        # HEADER
+        header_layout = QHBoxLayout()
+        logo_label = QLabel()
+        if os.path.exists(self.path_logo):
+            pixmap = QPixmap(self.path_logo)
+            scaled_pixmap = pixmap.scaled(
+                QSize(42, 42), Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
+            logo_label.setPixmap(scaled_pixmap)
+
+        title_container = QVBoxLayout()
+        title_container.setSpacing(0)
+        title = QLabel("SecureVault")
+        title.setObjectName("title")
+        subtitle = QLabel("AES-256 Encrypted macOS Vault Manager")
+        subtitle.setObjectName("subtitle")
+
+        title_container.addWidget(title)
+        title_container.addWidget(subtitle)
+
+        btn_help = QToolButton()
+        btn_help.setText("?")
+        btn_help.setToolTip("Handleiding en informatie")
+        btn_help.setCursor(Qt.PointingHandCursor)
+        btn_help.setObjectName("helpBtn")
+        btn_help.clicked.connect(self.show_help)
+
+        title_center_layout = QHBoxLayout()
+        title_center_layout.addWidget(logo_label)
+        title_center_layout.addSpacing(10)
+        title_center_layout.addLayout(title_container)
+
+        header_layout.addLayout(title_center_layout)
+        header_layout.addStretch()
+        header_layout.addWidget(btn_help)
+
+        main_layout.addLayout(header_layout)
+        main_layout.addSpacing(10)
+
+        # TABS
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("mainTabs")
+
+        self.tab_create = CreateVaultTab(self)
+        self.tab_manage = ManageVaultTab(self)
+
+        self.tabs.addTab(self.tab_create, "➕ Nieuwe Kluis")
+        self.tabs.addTab(self.tab_manage, "🔓 Kluis Beheren")
+
+        main_layout.addWidget(self.tabs)
+        self.setLayout(main_layout)
+
+    def apply_styles(self) -> None:
+        self.setStyleSheet(
+            """
+            QWidget { color: #EEE; font-family: ".AppleSystemUIFont", "Helvetica Neue", sans-serif; }
             
-            /* Popup Styling */
-            QMessageBox { background-color: #2b2b2b; }
+            QTabWidget::pane { border: 1px solid #444; border-radius: 8px; background: rgba(20, 20, 20, 0.75); }
+            QTabBar::tab { background: rgba(35, 35, 35, 0.8); border: 1px solid #444; padding: 8px 18px; border-top-left-radius: 6px; border-top-right-radius: 6px; color: #AAA; font-weight: bold; }
+            QTabBar::tab:selected { background: rgba(60, 60, 60, 0.95); color: #FFF; border-bottom-color: #4CAF50; }
+            QTabBar::tab:hover { color: #FFF; }
+
+            QMessageBox { background-color: #232323; }
             QMessageBox QLabel { color: #FFF; font-size: 13px; }
-            QMessageBox QPushButton { background-color: #444; color: #FFF; padding: 6px 16px; border-radius: 4px; }
-            QMessageBox QPushButton:hover { background-color: #555; }
+            QMessageBox QPushButton { background-color: #383838; color: #FFF; padding: 6px 18px; border-radius: 5px; border: 1px solid #555; }
+            QMessageBox QPushButton:hover { background-color: #4A4A4A; }
             
-            QLabel#title { font-size: 24px; font-weight: bold; color: #FFF; }
-            QLabel#inputLabel { color: #CCC; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; }
+            QLabel#title { font-size: 22px; font-weight: bold; color: #FFF; }
+            QLabel#subtitle { font-size: 11px; color: #888; letter-spacing: 0.5px; }
+            QLabel#inputLabel { color: #BBB; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; }
+            QLabel#sectionTitle { color: #4CAF50; font-size: 12px; font-weight: bold; letter-spacing: 0.5px; margin-top: 6px; }
+            QLabel#strengthLabel { font-size: 11px; color: #AAA; margin-bottom: 4px; }
+            QLabel#matchLabel { font-size: 11px; color: #AAA; }
             
-            /* Inputs */
-            QLineEdit { 
-                background: rgba(30, 30, 30, 0.7); 
-                border: 1px solid #555; 
-                padding: 10px; 
+            QLineEdit, QComboBox { 
+                background: rgba(25, 25, 25, 0.75); 
+                border: 1px solid #444; 
+                padding: 8px; 
                 border-radius: 6px; 
                 color: #FFF; 
                 font-size: 13px; 
             }
-            QLineEdit:focus { border: 1px solid #4CAF50; background: rgba(30, 30, 30, 0.9); }
+            QLineEdit:focus, QComboBox:focus { border: 1px solid #4CAF50; background: rgba(25, 25, 25, 0.95); }
+            QComboBox QAbstractItemView { background-color: #2A2A2A; color: #FFF; selection-background-color: #4CAF50; }
             
-            /* Knoppen */
-            QPushButton { background: rgba(68, 68, 68, 0.85); border: none; padding: 8px; border-radius: 6px; }
+            QPushButton#browseBtn { 
+                background: rgba(60, 60, 60, 0.85); 
+                border: 1px solid #555; 
+                padding: 8px 14px; 
+                border-radius: 6px; 
+                color: #DDD; 
+                font-weight: 500;
+            }
+            QPushButton#browseBtn:hover { background: rgba(80, 80, 80, 0.95); color: #FFF; }
+            
+            QToolButton#togglePwBtn {
+                background: rgba(45, 45, 45, 0.85);
+                border: 1px solid #444;
+                border-radius: 6px;
+                padding: 5px 9px;
+                font-size: 13px;
+            }
+            QToolButton#togglePwBtn:hover { background: rgba(65, 65, 65, 1.0); }
             
             QPushButton#actionBtn { 
-                background: rgba(76, 175, 80, 0.9); 
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4CAF50, stop:1 #388E3C); 
                 color: #FFF; 
                 font-weight: bold; 
-                padding: 12px; 
-                font-size: 14px; 
+                padding: 11px; 
+                font-size: 13px; 
                 border-radius: 8px; 
+                border: none;
             }
-            QPushButton#actionBtn:hover { background: rgba(69, 160, 73, 1.0); }
-            
+            QPushButton#actionBtn:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #53B957, stop:1 #3D9941); }
+            QPushButton#actionBtn:disabled { background: #333; color: #666; }
+
+            QPushButton#cancelBtn { 
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #D32F2F, stop:1 #B71C1C); 
+                color: #FFF; 
+                font-weight: bold; 
+                padding: 11px; 
+                font-size: 13px; 
+                border-radius: 8px; 
+                border: none;
+            }
+            QPushButton#cancelBtn:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #E53935, stop:1 #C62828); }
+
+            QListWidget#mountsList {
+                background: rgba(15, 15, 15, 0.8);
+                border: 1px solid #444;
+                border-radius: 6px;
+                padding: 6px;
+                color: #EEE;
+                font-size: 12px;
+            }
+            QListWidget#mountsList::item:selected { background: rgba(76, 175, 80, 0.4); border-radius: 4px; }
+
             QToolButton#helpBtn { 
-                background: rgba(51, 51, 51, 0.8); 
+                background: rgba(50, 50, 50, 0.8); 
                 color: #AAA; 
                 border-radius: 12px; 
                 font-weight: bold; 
@@ -202,98 +760,74 @@ class KluisApp(QWidget):
             QToolButton#helpBtn:hover { background: rgba(85, 85, 85, 1.0); color: #FFF; border-color: #777; }
 
             QTextEdit { 
-                background: rgba(10, 10, 10, 0.7); 
-                border: 1px solid #333; 
-                color: #0F0; 
-                font-family: "Menlo"; 
+                background: rgba(12, 16, 12, 0.85); 
+                border: 1px solid #2E3B2E; 
+                color: #4EFA65; 
+                font-family: "Menlo", "Courier New", monospace; 
                 font-size: 11px; 
                 border-radius: 6px; 
-                margin-top: 10px; 
+                margin-top: 4px; 
             }
             
-            QProgressBar { background: rgba(34, 34, 34, 0.8); border-radius: 4px; height: 6px; margin-top: 10px; }
+            QProgressBar { background: rgba(30, 30, 30, 0.8); border-radius: 4px; height: 6px; }
             QProgressBar::chunk { background: #4CAF50; border-radius: 4px; }
-        """)
+        """
+        )
 
-    def paintEvent(self, event):
+    def paintEvent(self, event) -> None:
         super().paintEvent(event)
-        
+
         if os.path.exists(self.path_bg):
             painter = QPainter(self)
             pixmap = QPixmap(self.path_bg)
-            
+
             target_size = self.size()
             scaled_pixmap = pixmap.scaled(
-                target_size, 
-                Qt.KeepAspectRatioByExpanding, 
-                Qt.SmoothTransformation
+                target_size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
             )
-            
+
             x = (target_size.width() - scaled_pixmap.width()) // 2
             y = (target_size.height() - scaled_pixmap.height()) // 2
-            
+
             painter.drawPixmap(x, y, scaled_pixmap)
 
-    def show_help(self):
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        urls = event.mimeData().urls()
+        if urls:
+            path = urls[0].toLocalFile()
+            if os.path.isdir(path) and not path.endswith(".sparsebundle"):
+                self.tab_create.inp_source.setText(path)
+                self.tabs.setCurrentIndex(0)
+                self.tab_create.log(f"📁 Map geïmporteerd via Drag & Drop: {path}")
+            elif path.endswith(".dmg") or path.endswith(".sparsebundle"):
+                self.tab_manage.inp_vault_file.setText(path)
+                self.tabs.setCurrentIndex(1)
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Geen map",
+                    "Gelieve een map of kluisbestand te slepen in plaats van een los bestand.",
+                )
+
+    def show_help(self) -> None:
         msg = QMessageBox(self)
         msg.setWindowTitle("Handleiding")
-        msg.setText("<b>Hoe werkt SecureVault?</b>")
+        msg.setText("<b>Hoe werkt SecureVault Pro?</b>")
         msg.setInformativeText(
             "<br>"
-            "1. <b>Kies Map:</b> Selecteer de map die je wilt beveiligen.<br>"
-            "2. <b>Locatie:</b> Kies waar de kluis (.dmg) moet komen.<br>"
-            "3. <b>Beveilig:</b> Verzin een naam en een sterk wachtwoord.<br>"
-            "4. <b>Start:</b> De app maakt een versleutelde kluis aan.<br><br>"
-            "<i style='color:#FF6B6B'>⚠️ Let op: Je originele map wordt niet automatisch verwijderd. "
-            "Controleer eerst of de kluis werkt en verwijder daarna zelf het origineel.</i>"
+            "1. <b>Nieuwe Kluis Aanmaken:</b><br>"
+            "   - Selecteer een bronmap (of sleep hem naar het venster).<br>"
+            "   - Kies het type: <i>Gecomprimeerd (Read-Only)</i>, <i>Lees/Schrijf (.dmg)</i> of <i>Meegroeiend (.sparsebundle)</i>.<br>"
+            "   - Voer een sterk wachtwoord in en start de beveiliging.<br><br>"
+            "2. <b>Kluis Beheren & Ontgrendelen:</b><br>"
+            "   - Ga naar het tabblad <b>'Kluis Beheren'</b>.<br>"
+            "   - Kies je `.dmg` of `.sparsebundle` en voer het wachtwoord in.<br>"
+            "   - Klik op <b>'ONTGRENDELEN IN FINDER'</b>. De kluis verschijnt als schijf in Finder waarin je bestanden kunt toevoegen of verwijderen.<br>"
+            "   - Klik na afloop op <b>'VEILIG VERGRENDELEN'</b> om de kluis af te sluiten.<br>"
         )
         msg.setIcon(QMessageBox.Information)
         msg.exec()
-
-    def browse_source(self):
-        d = QFileDialog.getExistingDirectory(self, "Kies map")
-        if d: self.inp_source.setText(d)
-
-    def browse_dest(self):
-        d = QFileDialog.getExistingDirectory(self, "Kies map")
-        if d: self.inp_dest.setText(d)
-
-    def log(self, msg):
-        self.log_view.append(msg)
-        sb = self.log_view.verticalScrollBar()
-        sb.setValue(sb.maximum())
-
-    def start_process(self):
-        source = self.inp_source.text()
-        dest = self.inp_dest.text()
-        name = self.inp_name.text()
-        pw = self.inp_pass.text()
-
-        if not all([source, dest, name, pw]):
-            QMessageBox.warning(self, "Let op", "Vul alle velden in.")
-            return
-
-        self.toggle_ui(False)
-        self.log_view.clear()
-        
-        self.worker = WorkerThread(source, dest, name, pw)
-        self.worker.log_signal.connect(self.log)
-        self.worker.finish_signal.connect(self.on_finish)
-        self.worker.start()
-
-    def on_finish(self, success, msg):
-        self.toggle_ui(True)
-        if success:
-            # --- AANGEPAST: Duidelijke tekst ---
-            text = f"De kluis is succesvol aangemaakt!\n\nJe vindt hem hier:\n{msg}"
-            QMessageBox.information(self, "Voltooid", text)
-        else:
-            QMessageBox.critical(self, "Fout", f"Er is iets misgegaan:\n{msg}")
-
-    def toggle_ui(self, enable):
-        self.btn_start.setEnabled(enable)
-        self.inp_source.setEnabled(enable)
-        self.inp_dest.setEnabled(enable)
-        self.inp_name.setEnabled(enable)
-        self.inp_pass.setEnabled(enable)
-        self.progress.setVisible(not enable)

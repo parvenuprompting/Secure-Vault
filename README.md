@@ -2,132 +2,73 @@
 
 ![Screenshot van de applicatie](screenshot.png)
 
-**SecureVault** is een moderne, minimalistische desktopapplicatie voor macOS waarmee je eenvoudig mappen kunt beveiligen in versleutelde kluizen (`.dmg` disk images).
+**SecureVault** is een moderne, minimalistische desktopapplicatie voor macOS waarmee je eenvoudig mappen kunt beveiligen in versleutelde kluizen (`.dmg` disk images en `.sparsebundle` meegroeiende pakketten).
 
-De applicatie is geschreven in **Python** met **PySide6 (Qt)** en maakt gebruik van native macOS-beveiligingstools (`hdiutil`) voor robuuste **AES‑256 encryptie**. Geen externe encryptielibraries, geen cloud, geen vendor lock‑in — alles blijft lokaal op je Mac.
+De applicatie is geschreven in **Python 3** met **PySide6 (Qt)** en maakt gebruik van native macOS-beveiligingstools (`hdiutil`) met **APFS** en **AES‑256 encryptie**. Geen externe encryptielibraries, geen cloud, geen vendor lock‑in — alles blijft lokaal op je Mac.
 
 ![Status](https://img.shields.io/badge/Status-Stable-green)
-![Platform](https://img.shields.io/badge/Platform-macOS-lightgrey)
+![Platform](https://img.shields.io/badge/Platform-macOS%20Only-lightgrey)
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
+
+> [!IMPORTANT]
+> **macOS Exclusief**: Deze applicatie is specifiek gebouwd voor macOS en vereist het ingebouwde command-line hulpprogramma `hdiutil`.
 
 ---
 
 ## ✨ Kenmerken
 
-* **🔐 AES‑256 Encryptie**
-  Gebruikt de industriestandaard voor encryptie via macOS `hdiutil`.
+* **🔐 AES‑256 Encryptie & APFS**
+  Gebruikt de industriestandaard voor encryptie via macOS `hdiutil` op het moderne APFS bestandssysteem.
 
-* **🌙 Modern Dark Design**
-  Strakke, minimalistische dark UI gebouwd met Qt.
+* **📂 3 Kluisindelingen (Read-Only & Read-Write)**
+  - 📦 **Gecomprimeerd (`UDZO`)**: Vaste omvang, gecomprimeerd en alleen-lezen (ideaal voor archivering).
+  - 📝 **Lees / Schrijf (`UDRW`)**: Bestanden toevoegen of verwijderen direct vanuit macOS Finder.
+  - 🚀 **Meegroeiend (`UDSB` / Sparse Bundle)**: Neemt alleen de daadwerkelijk gebruikte schijfruimte in en groeit automatisch mee wanneer je bestanden toevoegt in Finder!
 
-* **📐 Slimme grootte‑berekening**
-  De benodigde kluisgrootte wordt automatisch berekend op basis van de mapinhoud, inclusief ~10% veiligheidsmarge.
+* **🔓 Kluis Manager & Finder-integratie**
+  - Ontgrendel bestaande `.dmg` of `.sparsebundle` kluizen met je wachtwoord.
+  - Open met één klik in macOS Finder (**"🔓 ONTGRENDELEN IN FINDER"**).
+  - Bekijk actieve geopende kluizen en vergrendel ze veilig (**"🔒 VEILIG VERGRENDELEN"**).
 
-* **🚫 Geen pop‑ups**
-  Wachtwoorden worden veilig en direct aan het systeem doorgegeven zonder storende macOS‑dialoogvensters.
+* **🛡️ Wachtwoordveiligheid & Bevestiging**
+  Real-time wachtwoordsterkte-check, visuele vergelijking tussen wachtwoorden, show/hide toggle en veilige geheugen-opschoning (`bytearray` zeroing).
 
-* **⚙️ Multithreading**
-  Versleutelingsprocessen draaien in de achtergrond (`QThread`), zodat de interface altijd responsief blijft.
-
-* **📦 Compressie**
-  De uiteindelijke kluis wordt opgeslagen als een gecomprimeerde (`UDZO`) disk image om schijfruimte te besparen.
-
----
-
-## 🔑 Kernprincipes & Veiligheid
-
-### Volledig lokaal
-
-* Geen cloudopslag
-* Geen netwerkverkeer
-* Geen externe services
-
-Alles gebeurt lokaal op je Mac via native tooling.
-
-### Transparante beveiliging
-
-* Encryptie wordt uitgevoerd door macOS zelf
-* Geen custom crypto‑implementaties
-* Geen verborgen opslag van wachtwoorden
-
-### Gebruiker aan het stuur
-
-* Jij kiest welke map wordt versleuteld
-* Jij bepaalt de locatie en naam van de kluis
-* Zonder impliciete acties of automatische uploads
+* **⛔ Annuleer-mechanisme**
+  Processen kunnen op elk moment veilig geannuleerd worden met automatische opruiming van tijdelijke schijven.
 
 ---
 
-## 🛠️ Vereisten
-
-Om SecureVault te gebruiken heb je het volgende nodig:
-
-* **macOS** (vereist vanwege `hdiutil`)
-* **Python 3.9+**
-* **PySide6**
-
----
-
-## 🚀 Installatie
-
-### 1. Download of clone het project
-
-Plaats de projectmap lokaal op je Mac.
-
-### 2. Installeer de vereiste Python-bibliotheek
-
-Open Terminal, navigeer naar de projectmap en voer uit:
+## 📁 Projectstructuur
 
 ```
-pip3 install PySide6
+Secure-Vault/
+├── main.py              # Hoofd-entrypoint (start de PySide6 applicatie)
+├── src/
+│   ├── ui.py            # GUI-componenten (QTabWidget, CreateVaultTab, ManageVaultTab)
+│   └── vault_engine.py  # Kernlogica voor hdiutil, APFS, UDZO/UDRW/UDSB, mount & unmount
+├── assets/              # Afbeeldingen, iconen en installer-achtergrond
+├── tests/               # Unit- & integratietests
+├── bouw_alles.py        # Script voor het bouwen van .app & installer .dmg
+├── requirements.txt     # Python afhankelijkheden
+└── README.md            # Documentatie
 ```
 
 ---
 
-## ▶️ Applicatie starten
+## 🚀 Installatie & Starten
 
-Start de applicatie handmatig vanuit de Terminal:
-
+```bash
+pip3 install -r requirements.txt
+python3 main.py
 ```
-python3 securevault_gui.py
+
+---
+
+## 🔨 App & Installer Bouwen
+
+Om een op zichzelf staande macOS `.app` en een `.dmg` installer te bouwen:
+
+```bash
+pip3 install dmgbuild pyinstaller
+python3 bouw_alles.py
 ```
-
-*(Bestandsnaam kan afwijken afhankelijk van je projectstructuur.)*
-
----
-
-## 🧠 Hoe SecureVault werkt (hoog niveau)
-
-1. Je selecteert een map om te beveiligen
-2. SecureVault berekent de benodigde kluisgrootte
-3. macOS maakt een versleutelde `.dmg` met AES‑256
-4. De map wordt veilig gekopieerd naar de kluis
-5. De kluis wordt gecomprimeerd en opgeslagen
-
-Het originele bestandssysteem wordt hierbij niet aangepast.
-
----
-
-## ❌ Bewuste beperkingen
-
-SecureVault is bewust beperkt in scope om veiligheid en voorspelbaarheid te garanderen.
-
-De applicatie doet **niet**:
-
-* ❌ Synchroniseren met cloudservices
-* ❌ Bestanden automatisch uploaden of delen
-* ❌ Wachtwoorden opslaan of herstellen
-* ❌ Real‑time mappen monitoren
-* ❌ Cross‑platform ondersteuning bieden
-
-Elke kluis wordt expliciet en handmatig aangemaakt.
-
----
-
-## 🎯 Doel van dit project
-
-SecureVault is gebouwd als een **persoonlijke beveiligingsutility** voor macOS.
-
-Het doel is een eenvoudige, transparante manier bieden om gevoelige mappen te versleutelen met tooling die het besturingssysteem al vertrouwt — zonder extra complexiteit, accounts of abonnementen.
-
-Dit project is bedoeld voor persoonlijk en educatief gebruik. Forks en verbeteringen zijn welkom.

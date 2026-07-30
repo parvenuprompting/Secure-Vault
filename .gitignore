@@ -3,12 +3,16 @@ build/
 dist/
 *.spec
 
-# Negeer Python cache
+# Negeer Python cache & test artifacts
 __pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Negeer systeem bestanden
 .DS_Store
 
-# Negeer virtuele omgevingen (als je die ooit gebruikt)
+# Negeer virtuele omgevingen
+.venv/
 venv/
 env/
