@@ -6,7 +6,7 @@ import threading
 from typing import Optional, List
 
 from PySide6.QtCore import QSize, Qt, QThread, Signal, QSettings, QTimer
-from PySide6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPainter, QPixmap, QGuiApplication, QAction
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPainter, QPixmap, QGuiApplication, QAction, QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -855,6 +855,7 @@ class KluisApp(QWidget):
     def apply_styles(self) -> None:
         self.setStyleSheet(
             """
+            QWidget#MainWindow { background-color: #121418; }
             QWidget { color: #EEE; font-family: ".AppleSystemUIFont", "Helvetica Neue", sans-serif; }
             
             QTabWidget::pane { border: 1px solid #444; border-radius: 8px; background: rgba(20, 20, 20, 0.75); }
@@ -972,19 +973,18 @@ class KluisApp(QWidget):
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
 
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#121418"))
+
         if os.path.exists(self.path_bg):
-            painter = QPainter(self)
             pixmap = QPixmap(self.path_bg)
 
             target_size = self.size()
             scaled_pixmap = pixmap.scaled(
-                target_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+                target_size, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation
             )
 
-            x = (target_size.width() - scaled_pixmap.width()) // 2
-            y = (target_size.height() - scaled_pixmap.height()) // 2
-
-            painter.drawPixmap(x, y, scaled_pixmap)
+            painter.drawPixmap(0, 0, scaled_pixmap)
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if event.mimeData().hasUrls():
