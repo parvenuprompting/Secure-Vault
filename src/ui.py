@@ -3,11 +3,12 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
-from typing import Optional
+from typing import Optional, List
 
-from PySide6.QtCore import QSize, Qt, QThread, Signal
-from PySide6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QSize, Qt, QThread, Signal, QSettings, QTimer
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPainter, QPixmap, QGuiApplication, QAction
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -26,6 +28,30 @@ from PySide6.QtWidgets import (
 )
 
 from src.vault_engine import VaultEngine
+
+
+# --- QSETTINGS HELPER FUNCTIES ---
+def get_recent_vaults() -> List[str]:
+    """Haalt de lijst van maximaal 8 bestaande recente kluispaden op uit QSettings."""
+    settings = QSettings("SecureVault", "SecureVaultPro")
+    raw_list = settings.value("RecentVaults", [])
+    if isinstance(raw_list, str):
+        raw_list = [raw_list]
+    valid_paths = [p for p in raw_list if os.path.exists(p)]
+    return valid_paths[:8]
+
+
+def add_recent_vault(vault_path: str) -> None:
+    """Voegt een kluispad toe aan de recente geschiedenis in QSettings."""
+    if not vault_path or not os.path.exists(vault_path):
+        return
+    abs_path = os.path.abspath(vault_path)
+    current = get_recent_vaults()
+    if abs_path in current:
+        current.remove(abs_path)
+    current.insert(0, abs_path)
+    settings = QSettings("SecureVault", "SecureVaultPro")
+    settings.setValue("RecentVaults", current[:8])
 
 
 # --- WORKER THREAD VOOR AANMAKEN ---
@@ -343,6 +369,7 @@ class CreateVaultTab(QWidget):
         sb.setValue(sb.maximum())
 
     def start_process(self) -> None:
+        self.app.reset_auto_lock_timer()
         source = self.inp_source.text().strip()
         dest = self.inp_dest.text().strip()
         name = self.inp_name.text().strip()
@@ -398,6 +425,9 @@ class CreateVaultTab(QWidget):
         self.toggle_ui(True)
 
         if success:
+            add_recent_vault(msg)
+            self.app.tab_manage.populate_recents()
+
             box = QMessageBox(self)
             box.setWindowTitle("Voltooid")
             box.setText("🎉 Kluis Succesvol Aangemaakt")
@@ -440,6 +470,28 @@ class ManageVaultTab(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(10, 10, 10, 10)
 
+        # RECENT VAULTS DROPDOWN
+        lbl_recents = QLabel("🕒 RECENT GEOPENDE KLUIZEN")
+        lbl_recents.setObjectName("inputLabel")
+        layout.addWidget(lbl_recents)
+
+        rec_row = QHBoxLayout()
+        self.combo_recents = QComboBox()
+        self.combo_recents.setObjectName("recentsCombo")
+        self.combo_recents.setToolTip("Selecteer een recent gebruikte kluis uit het overzicht")
+        self.combo_recents.currentIndexChanged.connect(self.on_recent_selected)
+        rec_row.addWidget(self.combo_recents)
+
+        self.btn_open_last = QPushButton("⚡ OPEN LAATSTE")
+        self.btn_open_last.setObjectName("browseBtn")
+        self.btn_open_last.setToolTip("Selecteer direct de laatst gebruikte kluis")
+        self.btn_open_last.setCursor(Qt.PointingHandCursor)
+        self.btn_open_last.clicked.connect(self.select_last_vault)
+        rec_row.addWidget(self.btn_open_last)
+
+        layout.addLayout(rec_row)
+        layout.addSpacing(6)
+
         # UNLOCK SECTION
         lbl_section = QLabel("🔓 BESTAANDE KLUIS ONTGRENDELEN")
         lbl_section.setObjectName("sectionTitle")
@@ -450,6 +502,7 @@ class ManageVaultTab(QWidget):
             self.browse_vault_file,
             tooltip="Kies het bestand of pakket dat je wilt ontgrendelen",
         )
+        self.inp_vault_file.text_changed_signal.connect(self.check_keychain_autofill)
         layout.addWidget(self.inp_vault_file)
 
         self.inp_vault_pass = ModernInput(
@@ -458,6 +511,16 @@ class ManageVaultTab(QWidget):
             tooltip="Voer het wachtwoord van deze kluis in",
         )
         layout.addWidget(self.inp_vault_pass)
+
+        # KEYCHAIN CHECKBOX
+        self.chk_keychain = QCheckBox("🔑 Wachtwoord bewaren in macOS Sleutelhangertoegang (Keychain)")
+        self.chk_keychain.setObjectName("keychainChk")
+        self.chk_keychain.setToolTip(
+            "Slaat het wachtwoord versleuteld op in de macOS Keychain. "
+            "Bij uitvinken wordt het bewaarde wachtwoord direct uit Keychain verwijderd."
+        )
+        layout.addWidget(self.chk_keychain)
+        layout.addSpacing(6)
 
         self.btn_unlock = QPushButton("🔓 ONTGRENDELEN IN FINDER")
         self.btn_unlock.setObjectName("actionBtn")
@@ -474,6 +537,9 @@ class ManageVaultTab(QWidget):
 
         self.mounts_list = QListWidget()
         self.mounts_list.setObjectName("mountsList")
+        self.mounts_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.mounts_list.customContextMenuRequested.connect(self.show_mounts_context_menu)
+        self.mounts_list.itemDoubleClicked.connect(self.on_mount_item_double_clicked)
         layout.addWidget(self.mounts_list)
 
         btn_row = QHBoxLayout()
@@ -492,7 +558,51 @@ class ManageVaultTab(QWidget):
         layout.addLayout(btn_row)
         self.setLayout(layout)
 
+        self.populate_recents()
         self.refresh_mounts()
+
+    def populate_recents(self) -> None:
+        self.combo_recents.blockSignals(True)
+        self.combo_recents.clear()
+        recents = get_recent_vaults()
+
+        if not recents:
+            self.combo_recents.addItem("Geen recente kluizen gevonden.", "")
+            self.combo_recents.setEnabled(False)
+            self.btn_open_last.setEnabled(False)
+        else:
+            self.combo_recents.setEnabled(True)
+            self.btn_open_last.setEnabled(True)
+            self.combo_recents.addItem("Selecteer uit geschiedenis...", "")
+            for p in recents:
+                name = os.path.basename(p)
+                display_path = os.path.dirname(p)
+                if len(display_path) > 30:
+                    display_path = "..." + display_path[-27:]
+                label = f"📁 {name} ({display_path})"
+                self.combo_recents.addItem(label, p)
+        self.combo_recents.blockSignals(False)
+
+    def on_recent_selected(self, index: int) -> None:
+        path = self.combo_recents.currentData()
+        if path and os.path.exists(path):
+            self.inp_vault_file.setText(path)
+
+    def select_last_vault(self) -> None:
+        recents = get_recent_vaults()
+        if recents:
+            self.inp_vault_file.setText(recents[0])
+            self.inp_vault_pass.input.setFocus()
+
+    def check_keychain_autofill(self, path: str) -> None:
+        path = path.strip()
+        if path and os.path.exists(path):
+            kc_pw = VaultEngine.get_keychain_password(path)
+            if kc_pw:
+                self.inp_vault_pass.setText(kc_pw)
+                self.chk_keychain.setChecked(True)
+            else:
+                self.chk_keychain.setChecked(False)
 
     def browse_vault_file(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -503,7 +613,6 @@ class ManageVaultTab(QWidget):
             options=QFileDialog.Option.DontResolveSymlinks,
         )
 
-        # Fallback voor macOS als een .sparsebundle pakket als map wordt geopend
         if not file_path:
             d = QFileDialog.getExistingDirectory(
                 self,
@@ -518,6 +627,7 @@ class ManageVaultTab(QWidget):
             self.inp_vault_file.setText(file_path)
 
     def unlock_vault(self) -> None:
+        self.app.reset_auto_lock_timer()
         vault_path = self.inp_vault_file.text().strip()
         password = self.inp_vault_pass.text()
 
@@ -530,6 +640,15 @@ class ManageVaultTab(QWidget):
         success, msg, mount_point = self.engine.mount_vault(vault_path, password)
 
         if success:
+            add_recent_vault(vault_path)
+            self.populate_recents()
+
+            # Keychain beheer volgens gebruiker-keuze
+            if self.chk_keychain.isChecked():
+                VaultEngine.save_keychain_password(vault_path, password)
+            else:
+                VaultEngine.delete_keychain_password(vault_path)
+
             self.inp_vault_pass.setText("")
             self.refresh_mounts()
             QMessageBox.information(
@@ -547,26 +666,50 @@ class ManageVaultTab(QWidget):
 
         if not active:
             item = QListWidgetItem("Geen actieve geopende kluizen.")
-            item.setFlags(Qt.NoItemFlags)
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
             self.mounts_list.addItem(item)
             return
 
         for mount_point, vault_path in active.items():
             vault_name = os.path.basename(vault_path)
-            item_text = f"📂 {vault_name}  -->  {mount_point}"
+            size_str = self.engine.get_vault_disk_size(vault_path)
+            item_text = f"📂 {vault_name} ({size_str})  -->  {mount_point}"
             item = QListWidgetItem(item_text)
-            item.setData(Qt.UserRole, mount_point)
+            item.setData(Qt.ItemDataRole.UserRole, mount_point)
+            item.setToolTip(f"Kluisbestand: {vault_path}\nMountpoint: {mount_point}\nDubbelklik om te openen in Finder")
             self.mounts_list.addItem(item)
 
-    def lock_selected_vault(self) -> None:
-        current_item = self.mounts_list.currentItem()
-        if not current_item or not current_item.data(Qt.UserRole):
-            QMessageBox.warning(
-                self, "Geen Selectie", "Selecteer eerst een actieve kluis uit de lijst."
-            )
+    def on_mount_item_double_clicked(self, item: QListWidgetItem) -> None:
+        mount_point = item.data(Qt.ItemDataRole.UserRole)
+        if mount_point and os.path.exists(mount_point):
+            subprocess.run(["open", mount_point])
+
+    def show_mounts_context_menu(self, point) -> None:
+        item = self.mounts_list.itemAt(point)
+        if not item or not item.data(Qt.ItemDataRole.UserRole):
             return
 
-        mount_point = current_item.data(Qt.UserRole)
+        mount_point = item.data(Qt.ItemDataRole.UserRole)
+        menu = QMenu(self)
+
+        act_open = QAction("📂 Openen in Finder", self)
+        act_open.triggered.connect(lambda: subprocess.run(["open", mount_point]))
+        menu.addAction(act_open)
+
+        act_copy = QAction("📋 Kopieer pad naar klembord", self)
+        act_copy.triggered.connect(lambda: QGuiApplication.clipboard().setText(mount_point))
+        menu.addAction(act_copy)
+
+        menu.addSeparator()
+
+        act_lock = QAction("🔒 Veilig Vergrendelen (Uitwerpen)", self)
+        act_lock.triggered.connect(lambda: self.lock_vault_path(mount_point))
+        menu.addAction(act_lock)
+
+        menu.exec(self.mounts_list.mapToGlobal(point))
+
+    def lock_vault_path(self, mount_point: str) -> None:
+        self.app.reset_auto_lock_timer()
         success, msg = self.engine.unmount_vault(mount_point)
 
         if success:
@@ -577,9 +720,9 @@ class ManageVaultTab(QWidget):
                 self,
                 "Vergrendelen Mislukt",
                 f"{msg}\n\nWil je het uitwerpen forceren?",
-                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
-            if reply == QMessageBox.Yes:
+            if reply == QMessageBox.StandardButton.Yes:
                 f_success, f_msg = self.engine.unmount_vault(mount_point, force=True)
                 if f_success:
                     QMessageBox.information(self, "Geforceerd Vergrendeld", f_msg)
@@ -587,14 +730,24 @@ class ManageVaultTab(QWidget):
                     QMessageBox.critical(self, "Fout", f_msg)
                 self.refresh_mounts()
 
+    def lock_selected_vault(self) -> None:
+        current_item = self.mounts_list.currentItem()
+        if not current_item or not current_item.data(Qt.ItemDataRole.UserRole):
+            QMessageBox.warning(
+                self, "Geen Selectie", "Selecteer eerst een actieve kluis uit de lijst."
+            )
+            return
+        mount_point = current_item.data(Qt.ItemDataRole.UserRole)
+        self.lock_vault_path(mount_point)
+
 
 # --- HOOFD APPLICATIE VENSTER ---
 class KluisApp(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SecureVault Pro")
-        self.resize(540, 750)
-        self.setMinimumSize(500, 700)
+        self.resize(560, 780)
+        self.setMinimumSize(520, 720)
         self.setObjectName("MainWindow")
         self.setAcceptDrops(True)
 
@@ -603,6 +756,10 @@ class KluisApp(QWidget):
 
         self.path_logo = os.path.join(project_root, "assets", "logo.png")
         self.path_bg = os.path.join(project_root, "assets", "background.png")
+
+        # Auto-Lock Timer Setup
+        self.auto_lock_timer = QTimer(self)
+        self.auto_lock_timer.timeout.connect(self.on_auto_lock_timeout)
 
         self.setup_ui()
         self.apply_styles()
@@ -617,7 +774,7 @@ class KluisApp(QWidget):
         if os.path.exists(self.path_logo):
             pixmap = QPixmap(self.path_logo)
             scaled_pixmap = pixmap.scaled(
-                QSize(42, 42), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                QSize(42, 42), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
             )
             logo_label.setPixmap(scaled_pixmap)
 
@@ -631,10 +788,20 @@ class KluisApp(QWidget):
         title_container.addWidget(title)
         title_container.addWidget(subtitle)
 
+        # AUTO LOCK COMBO IN HEADER
+        self.combo_autolock = QComboBox()
+        self.combo_autolock.setObjectName("autolockCombo")
+        self.combo_autolock.addItem("⏰ Auto-Lock: Uit", 0)
+        self.combo_autolock.addItem("⏰ Auto-Lock: 15 min", 15)
+        self.combo_autolock.addItem("⏰ Auto-Lock: 30 min", 30)
+        self.combo_autolock.addItem("⏰ Auto-Lock: 60 min", 60)
+        self.combo_autolock.setToolTip("Automatisch alle kluizen vergrendelen bij inactiviteit")
+        self.combo_autolock.currentIndexChanged.connect(self.on_autolock_setting_changed)
+
         btn_help = QToolButton()
         btn_help.setText("?")
         btn_help.setToolTip("Handleiding en informatie")
-        btn_help.setCursor(Qt.PointingHandCursor)
+        btn_help.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_help.setObjectName("helpBtn")
         btn_help.clicked.connect(self.show_help)
 
@@ -645,6 +812,8 @@ class KluisApp(QWidget):
 
         header_layout.addLayout(title_center_layout)
         header_layout.addStretch()
+        header_layout.addWidget(self.combo_autolock)
+        header_layout.addSpacing(6)
         header_layout.addWidget(btn_help)
 
         main_layout.addLayout(header_layout)
@@ -653,6 +822,7 @@ class KluisApp(QWidget):
         # TABS
         self.tabs = QTabWidget()
         self.tabs.setObjectName("mainTabs")
+        self.tabs.currentChanged.connect(lambda idx: self.reset_auto_lock_timer())
 
         self.tab_create = CreateVaultTab(self)
         self.tab_manage = ManageVaultTab(self)
@@ -662,6 +832,25 @@ class KluisApp(QWidget):
 
         main_layout.addWidget(self.tabs)
         self.setLayout(main_layout)
+
+    def on_autolock_setting_changed(self, index: int) -> None:
+        mins = self.combo_autolock.currentData()
+        if mins > 0:
+            ms = mins * 60 * 1000
+            self.auto_lock_timer.start(ms)
+        else:
+            self.auto_lock_timer.stop()
+
+    def reset_auto_lock_timer(self) -> None:
+        mins = self.combo_autolock.currentData()
+        if mins > 0:
+            ms = mins * 60 * 1000
+            self.auto_lock_timer.start(ms)
+
+    def on_auto_lock_timeout(self) -> None:
+        unmounted = VaultEngine().unmount_all_vaults()
+        if unmounted > 0:
+            self.tab_manage.refresh_mounts()
 
     def apply_styles(self) -> None:
         self.setStyleSheet(
@@ -677,6 +866,9 @@ class KluisApp(QWidget):
             QMessageBox QLabel { color: #FFF; font-size: 13px; }
             QMessageBox QPushButton { background-color: #383838; color: #FFF; padding: 6px 18px; border-radius: 5px; border: 1px solid #555; }
             QMessageBox QPushButton:hover { background-color: #4A4A4A; }
+
+            QCheckBox#keychainChk { color: #DDD; font-size: 11px; margin-top: 4px; }
+            QCheckBox#keychainChk::indicator { width: 14px; height: 14px; }
             
             QLabel#title { font-size: 22px; font-weight: bold; color: #FFF; }
             QLabel#subtitle { font-size: 11px; color: #888; letter-spacing: 0.5px; }
@@ -748,6 +940,9 @@ class KluisApp(QWidget):
             }
             QListWidget#mountsList::item:selected { background: rgba(76, 175, 80, 0.4); border-radius: 4px; }
 
+            QMenu { background-color: #2A2A2A; border: 1px solid #555; color: #FFF; }
+            QMenu::item:selected { background-color: #4CAF50; color: #FFF; }
+
             QToolButton#helpBtn { 
                 background: rgba(50, 50, 50, 0.8); 
                 color: #AAA; 
@@ -783,7 +978,7 @@ class KluisApp(QWidget):
 
             target_size = self.size()
             scaled_pixmap = pixmap.scaled(
-                target_size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+                target_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
             )
 
             x = (target_size.width() - scaled_pixmap.width()) // 2
@@ -796,6 +991,7 @@ class KluisApp(QWidget):
             event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent) -> None:
+        self.reset_auto_lock_timer()
         urls = event.mimeData().urls()
         if urls:
             path = urls[0].toLocalFile()
@@ -814,9 +1010,10 @@ class KluisApp(QWidget):
                 )
 
     def show_help(self) -> None:
+        self.reset_auto_lock_timer()
         msg = QMessageBox(self)
         msg.setWindowTitle("Handleiding")
-        msg.setText("<b>Hoe werkt SecureVault Pro?</b>")
+        msg.setText("<b>Hoe werkt SecureVault Pro v2.1?</b>")
         msg.setInformativeText(
             "<br>"
             "1. <b>Nieuwe Kluis Aanmaken:</b><br>"
@@ -824,10 +1021,12 @@ class KluisApp(QWidget):
             "   - Kies het type: <i>Gecomprimeerd (Read-Only)</i>, <i>Lees/Schrijf (.dmg)</i> of <i>Meegroeiend (.sparsebundle)</i>.<br>"
             "   - Voer een sterk wachtwoord in en start de beveiliging.<br><br>"
             "2. <b>Kluis Beheren & Ontgrendelen:</b><br>"
-            "   - Ga naar het tabblad <b>'Kluis Beheren'</b>.<br>"
-            "   - Kies je `.dmg` of `.sparsebundle` en voer het wachtwoord in.<br>"
-            "   - Klik op <b>'ONTGRENDELEN IN FINDER'</b>. De kluis verschijnt als schijf in Finder waarin je bestanden kunt toevoegen of verwijderen.<br>"
-            "   - Klik na afloop op <b>'VEILIG VERGRENDELEN'</b> om de kluis af te sluiten.<br>"
+            "   - Kies een recente kluis uit de dropdown of blader naar een `.dmg`/`.sparsebundle`.<br>"
+            "   - Vink eventueel <i>'Wachtwoord bewaren in Keychain'</i> aan.<br>"
+            "   - Klik op <b>'ONTGRENDELEN IN FINDER'</b> om te openen.<br>"
+            "   - Rechtermuisklik of dubbelklik op actieve kluisen voor snelle acties (Openen, Vergrendelen, Pad kopiëren).<br><br>"
+            "3. <b>Auto-Lock Timer:</b><br>"
+            "   - Stel bovenaan een auto-lock timer in (15/30/60 min) om geopende kluizen bij inactiviteit automatisch veilig af te sluiten.<br>"
         )
         msg.setIcon(QMessageBox.Information)
         msg.exec()

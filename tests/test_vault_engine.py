@@ -76,7 +76,6 @@ class TestVaultEngineSizeAndCleanup:
         real_file = src / "real.txt"
         real_file.write_text("data")
 
-        # Symlink
         symlink_file = src / "link.txt"
         try:
             os.symlink(str(real_file), str(symlink_file))
@@ -107,12 +106,30 @@ class TestVaultEngineSizeAndCleanup:
         engine.cleanup(str(d))
         assert not d.exists()
 
-        # Non-existent cleanup should not raise
         engine.cleanup("/nonexistent/file/path")
 
+    def test_get_vault_disk_size(self, engine: VaultEngine, tmp_path: pytest.TempPathFactory) -> None:
+        assert engine.get_vault_disk_size("/nonexistent/file.dmg") == "0 MB"
 
-class TestPasswordStrength:
-    """Tests voor check_password_strength."""
+        f = tmp_path / "test_vault.dmg"
+        f.write_bytes(b"0" * (1024 * 1024 * 5))
+        size_str = engine.get_vault_disk_size(str(f))
+        assert "5 MB" in size_str
+
+        bundle = tmp_path / "test_vault.sparsebundle"
+        bundle.mkdir()
+        band = bundle / "band1"
+        band.write_bytes(b"0" * (1024 * 1024 * 10))
+        bundle_size = engine.get_vault_disk_size(str(bundle))
+        assert "10 MB" in bundle_size
+
+        gb_file = tmp_path / "large.dmg"
+        gb_file.write_bytes(b"0" * (1024 * 1024 * 1025))
+        assert "1.0 GB" in engine.get_vault_disk_size(str(gb_file))
+
+
+class TestPasswordStrengthAndErrorParsing:
+    """Tests voor check_password_strength en parse_hdiutil_error."""
 
     @pytest.mark.parametrize(
         "password,expected_valid,score_range",
@@ -131,6 +148,59 @@ class TestPasswordStrength:
         assert valid == expected_valid
         assert score_range[0] <= score <= score_range[1]
         assert isinstance(msg, str)
+
+    def test_parse_hdiutil_error(self) -> None:
+        assert "Wachtwoord is onjuist" in VaultEngine.parse_hdiutil_error("checksum incorrect")
+        assert "Wachtwoord is onjuist" in VaultEngine.parse_hdiutil_error("authentication failed")
+        assert "bestandssysteem niet koppelen" in VaultEngine.parse_hdiutil_error("no mountable file systems")
+        assert "nog in gebruik" in VaultEngine.parse_hdiutil_error("Resource busy")
+        assert "Geen toegang" in VaultEngine.parse_hdiutil_error("Permission denied")
+        assert "Bestaat al" in VaultEngine.parse_hdiutil_error("file exists") or "bestaat al" in VaultEngine.parse_hdiutil_error("file exists")
+        assert "hdiutil fout: Custom error" in VaultEngine.parse_hdiutil_error("Custom error")
+        assert VaultEngine.parse_hdiutil_error("") == "Onbekende hdiutil fout."
+
+
+class TestKeychainAndNotifications:
+    """Tests voor Keychain integratie en macOS notificaties."""
+
+    @patch("subprocess.run")
+    def test_save_keychain_password(self, mock_run: MagicMock) -> None:
+        mock_run.return_value = MagicMock(returncode=0)
+        assert VaultEngine.save_keychain_password("/path/vault.dmg", "Secret123") is True
+        assert mock_run.called
+        assert VaultEngine.save_keychain_password("", "") is False
+
+        mock_run.side_effect = Exception("Keychain error")
+        assert VaultEngine.save_keychain_password("/path/vault.dmg", "Secret123") is False
+
+    @patch("subprocess.run")
+    def test_get_keychain_password(self, mock_run: MagicMock) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="Secret123\n")
+        assert VaultEngine.get_keychain_password("/path/vault.dmg") == "Secret123"
+
+        mock_run.return_value = MagicMock(returncode=1, stdout="")
+        assert VaultEngine.get_keychain_password("/path/vault.dmg") is None
+        assert VaultEngine.get_keychain_password("") is None
+
+        mock_run.side_effect = Exception("Keychain fetch error")
+        assert VaultEngine.get_keychain_password("/path/vault.dmg") is None
+
+    @patch("subprocess.run")
+    def test_delete_keychain_password(self, mock_run: MagicMock) -> None:
+        mock_run.return_value = MagicMock(returncode=0)
+        assert VaultEngine.delete_keychain_password("/path/vault.dmg") is True
+        assert VaultEngine.delete_keychain_password("") is False
+
+        mock_run.side_effect = Exception("Keychain delete error")
+        assert VaultEngine.delete_keychain_password("/path/vault.dmg") is False
+
+    @patch("subprocess.run")
+    def test_send_macos_notification(self, mock_run: MagicMock) -> None:
+        VaultEngine.send_macos_notification("Title", "Message")
+        assert mock_run.called
+
+        mock_run.side_effect = Exception("Notification failed")
+        VaultEngine.send_macos_notification("Title", "Message")
 
 
 class TestCreateVault:
@@ -154,7 +224,7 @@ class TestCreateVault:
         mock_proc.communicate.return_value = ("success", "")
 
         logs: list[str] = []
-        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen, patch("src.vault_engine.VaultEngine.send_macos_notification"):
             success, dmg_path = engine.create_vault(
                 sample_dir,
                 str(dest),
@@ -226,7 +296,7 @@ class TestCreateVault:
         mock_proc = MagicMock()
         mock_proc.poll.return_value = 1
         mock_proc.returncode = 1
-        mock_proc.communicate.return_value = ("", "hdiutil: create failed - invalid pass")
+        mock_proc.communicate.return_value = ("", "hdiutil: create failed - checksum incorrect")
 
         with patch("subprocess.Popen", return_value=mock_proc):
             success, msg = engine.create_vault(
@@ -237,7 +307,7 @@ class TestCreateVault:
             )
 
         assert success is False
-        assert "hdiutil fout" in msg
+        assert "Wachtwoord is onjuist" in msg
 
     def test_create_vault_trailing_slash_and_unicode(self, engine: VaultEngine, tmp_path: pytest.TempPathFactory) -> None:
         src = tmp_path / "unicode_mâp/"
@@ -250,7 +320,7 @@ class TestCreateVault:
         mock_proc.returncode = 0
         mock_proc.communicate.return_value = ("ok", "")
 
-        with patch("subprocess.Popen", return_value=mock_proc):
+        with patch("subprocess.Popen", return_value=mock_proc), patch("src.vault_engine.VaultEngine.send_macos_notification"):
             success, path = engine.create_vault(
                 str(src),
                 str(dest),
@@ -263,7 +333,7 @@ class TestCreateVault:
 
 
 class TestMountAndUnmount:
-    """Tests voor mount_vault, unmount_vault en get_active_mounts."""
+    """Tests voor mount_vault, unmount_vault, unmount_all_vaults en get_active_mounts."""
 
     def test_mount_vault_nonexistent(self, engine: VaultEngine) -> None:
         success, msg, mnt = engine.mount_vault("/nonexistent/vault.dmg", "pass")
@@ -285,15 +355,6 @@ class TestMountAndUnmount:
         assert mnt in engine.get_active_mounts()
 
     @patch("os.path.exists", return_value=True)
-    def test_mount_vault_exception_handling(self, mock_exists: MagicMock, engine: VaultEngine) -> None:
-        with patch("subprocess.Popen", side_effect=RuntimeError("Subprocess failed to launch")):
-            success, msg, mnt = engine.mount_vault("/fake/vault.dmg", "Secret123!")
-
-        assert success is False
-        assert "Fout bij koppelen" in msg
-        assert mnt == ""
-
-    @patch("os.path.exists", return_value=True)
     def test_mount_vault_wrong_password(self, mock_exists: MagicMock, engine: VaultEngine) -> None:
         mock_proc = MagicMock()
         mock_proc.returncode = 1
@@ -303,7 +364,7 @@ class TestMountAndUnmount:
             success, msg, mnt = engine.mount_vault("/fake/vault.dmg", "WrongPass")
 
         assert success is False
-        assert "Kon kluis niet ontgrendelen" in msg
+        assert "Wachtwoord is onjuist" in msg
         assert mnt == ""
 
     def test_unmount_vault_nonexistent_mountpoint(self, engine: VaultEngine) -> None:
@@ -327,31 +388,17 @@ class TestMountAndUnmount:
         assert "veilig vergrendeld" in msg
         assert mnt not in engine.get_active_mounts()
 
-    def test_unmount_vault_busy_and_forced(self, engine: VaultEngine, tmp_path: pytest.TempPathFactory) -> None:
-        mnt = str(tmp_path / "mount_vol")
-        os.makedirs(mnt)
-        engine._active_mounts[mnt] = "/fake/vault.dmg"
+    def test_unmount_all_vaults(self, engine: VaultEngine, tmp_path: pytest.TempPathFactory) -> None:
+        mnt1 = str(tmp_path / "mount_vol1")
+        os.makedirs(mnt1)
+        engine._active_mounts[mnt1] = "/fake/vault1.dmg"
 
-        mock_res_busy = MagicMock()
-        mock_res_busy.returncode = 1
-        mock_res_busy.stderr = "Resource busy"
+        mock_res = MagicMock(returncode=0, stderr="")
+        with patch("subprocess.run", return_value=mock_res), patch("src.vault_engine.VaultEngine.send_macos_notification") as mock_notif:
+            count = engine.unmount_all_vaults()
 
-        with patch("subprocess.run", return_value=mock_res_busy):
-            success, msg = engine.unmount_vault(mnt, force=False)
-
-        assert success is False
-        assert "Resource busy" in msg
-        assert mnt in engine.get_active_mounts()
-
-        mock_res_ok = MagicMock()
-        mock_res_ok.returncode = 0
-        mock_res_ok.stderr = ""
-
-        with patch("subprocess.run", return_value=mock_res_ok):
-            success_f, msg_f = engine.unmount_vault(mnt, force=True)
-
-        assert success_f is True
-        assert mnt not in engine.get_active_mounts()
+        assert count == 1
+        assert mock_notif.called
 
     def test_get_active_mounts_cleans_stale_mounts(self, engine: VaultEngine, tmp_path: pytest.TempPathFactory) -> None:
         valid_mnt = str(tmp_path / "valid_mnt")

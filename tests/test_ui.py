@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 import pytest
 from PySide6.QtCore import QMimeData, QUrl, Qt
 from PySide6.QtGui import QDropEvent
-from PySide6.QtWidgets import QFileDialog, QMessageBox
+from PySide6.QtWidgets import QFileDialog, QMessageBox, QListWidgetItem
 
-from src.ui import KluisApp, ModernInput
+from src.ui import KluisApp, ModernInput, get_recent_vaults, add_recent_vault
 
 
 @pytest.fixture(autouse=True)
@@ -42,6 +42,7 @@ class TestKluisAppUI:
         assert app.tabs.count() == 2
         assert app.tabs.tabText(0) == "➕ Nieuwe Kluis"
         assert app.tabs.tabText(1) == "🔓 Kluis Beheren"
+        assert app.combo_autolock.count() == 4
 
     def test_modern_input_components(self, qtbot: pytest.FixtureRequest) -> None:
         inp = ModernInput("TEST INPUT", is_password=True, tooltip="Tooltip text")
@@ -50,16 +51,61 @@ class TestKluisAppUI:
         assert inp.lbl.text() == "TEST INPUT"
         assert inp.input.toolTip() == "Tooltip text"
 
-        # Toggle password visibility
         inp.toggle_password_visibility()
         assert inp.btn_toggle.text() == "🙈"
         inp.toggle_password_visibility()
         assert inp.btn_toggle.text() == "👁"
 
-        # Border status styling
         inp.set_border_status("valid")
         inp.set_border_status("invalid")
         inp.set_border_status(None)
+
+    def test_recent_vaults_and_keychain_ui(self, qtbot: pytest.FixtureRequest, tmp_path: pytest.TempPathFactory, mocker: pytest.FixtureRequest) -> None:
+        app = KluisApp()
+        qtbot.addWidget(app)
+        app.show()
+
+        vault_file = tmp_path / "recent_vault.dmg"
+        vault_file.write_text("dummy")
+        add_recent_vault(str(vault_file))
+
+        app.tab_manage.populate_recents()
+        assert app.tab_manage.combo_recents.count() >= 2
+
+        app.tab_manage.select_last_vault()
+        assert app.tab_manage.inp_vault_file.text() == str(vault_file)
+
+        mocker.patch("src.vault_engine.VaultEngine.get_keychain_password", return_value="SecretFromKC")
+        app.tab_manage.check_keychain_autofill(str(vault_file))
+        assert app.tab_manage.inp_vault_pass.text() == "SecretFromKC"
+        assert app.tab_manage.chk_keychain.isChecked() is True
+
+    def test_autolock_timer_changes(self, qtbot: pytest.FixtureRequest) -> None:
+        app = KluisApp()
+        qtbot.addWidget(app)
+        app.show()
+
+        app.combo_autolock.setCurrentIndex(1)  # 15 min
+        assert app.auto_lock_timer.isActive() is True
+
+        app.combo_autolock.setCurrentIndex(0)  # Uit
+        assert app.auto_lock_timer.isActive() is False
+
+    def test_mounts_list_double_click_and_context_menu(self, qtbot: pytest.FixtureRequest, mocker: pytest.FixtureRequest) -> None:
+        app = KluisApp()
+        qtbot.addWidget(app)
+        app.show()
+
+        tab = app.tab_manage
+        item = QListWidgetItem("📂 TestVault --> /Volumes/BeveiligdVolume-1234")
+        item.setData(Qt.ItemDataRole.UserRole, "/Volumes/BeveiligdVolume-1234")
+        tab.mounts_list.addItem(item)
+
+        mock_run = mocker.patch("subprocess.run")
+        mocker.patch("os.path.exists", return_value=True)
+
+        tab.on_mount_item_double_clicked(item)
+        mock_run.assert_called_with(["open", "/Volumes/BeveiligdVolume-1234"])
 
     def test_browsing_dialogs(self, qtbot: pytest.FixtureRequest, mocker: pytest.FixtureRequest, tmp_path: pytest.TempPathFactory) -> None:
         app = KluisApp()
@@ -99,22 +145,18 @@ class TestKluisAppUI:
 
         tab = app.tab_create
 
-        # Type te kort wachtwoord
         qtbot.keyClicks(tab.inp_pass.input, "short")
         assert tab.strength_bar.value() < 50
         assert "minimaal 8 tekens" in tab.lbl_strength.text()
 
-        # Wis en type sterk wachtwoord
         tab.inp_pass.input.clear()
         qtbot.keyClicks(tab.inp_pass.input, "StrongP@ss2026!")
         assert tab.strength_bar.value() >= 75
         assert "Sterk" in tab.lbl_strength.text()
 
-        # Bevestig wachtwoord mismatch
         qtbot.keyClicks(tab.inp_pass_confirm.input, "WrongMatch!")
         assert "niet overeen" in tab.lbl_match.text()
 
-        # Bevestig wachtwoord match
         tab.inp_pass_confirm.input.clear()
         qtbot.keyClicks(tab.inp_pass_confirm.input, "StrongP@ss2026!")
         assert "komen overeen" in tab.lbl_match.text()
@@ -127,7 +169,6 @@ class TestKluisAppUI:
         tab = app.tab_create
         mock_warn = mocker.patch.object(QMessageBox, "warning")
 
-        # Velden leeg -> start klik
         qtbot.mouseClick(tab.btn_start, Qt.MouseButton.LeftButton)
         mock_warn.assert_called_once()
         assert "Invoer incompleet" in mock_warn.call_args[0][1]
@@ -154,19 +195,16 @@ class TestKluisAppUI:
         mock_proc.returncode = 0
         mock_proc.communicate.return_value = ("created", "")
         mocker.patch("subprocess.Popen", return_value=mock_proc)
+        mocker.patch("src.vault_engine.VaultEngine.send_macos_notification")
 
-        # Klik start
         qtbot.mouseClick(tab.btn_start, Qt.MouseButton.LeftButton)
 
-        # UI state tijdens run
         assert not tab.btn_start.isEnabled()
         assert not tab.btn_cancel.isHidden()
 
-        # Wacht op worker finish via qtbot
         with qtbot.waitSignal(tab.worker.finish_signal, timeout=5000):
             pass
 
-        # UI herstel na finish
         assert tab.btn_start.isEnabled()
         assert tab.btn_cancel.isHidden()
 
@@ -195,7 +233,6 @@ class TestKluisAppUI:
         qtbot.mouseClick(tab.btn_start, Qt.MouseButton.LeftButton)
         assert not tab.btn_cancel.isHidden()
 
-        # Klik annuleren
         qtbot.mouseClick(tab.btn_cancel, Qt.MouseButton.LeftButton)
         assert "Bezig met opruimen" in tab.btn_cancel.text()
 
@@ -209,7 +246,6 @@ class TestKluisAppUI:
         qtbot.addWidget(app)
         app.show()
 
-        # 1. Drop gewone map -> naar Tab 0 (Nieuwe Kluis)
         folder = tmp_path / "drag_folder"
         folder.mkdir()
 
@@ -221,7 +257,6 @@ class TestKluisAppUI:
         assert app.tabs.currentIndex() == 0
         assert app.tab_create.inp_source.text() == str(folder)
 
-        # 2. Drop .dmg kluisbestand -> naar Tab 1 (Kluis Beheren)
         dmg_file = tmp_path / "my_vault.dmg"
         dmg_file.write_text("dummy")
 
@@ -233,7 +268,6 @@ class TestKluisAppUI:
         assert app.tabs.currentIndex() == 1
         assert app.tab_manage.inp_vault_file.text() == str(dmg_file)
 
-        # 3. Drop .sparsebundle pakket (map) -> naar Tab 1 (Kluis Beheren)
         bundle_dir = tmp_path / "my_vault.sparsebundle"
         bundle_dir.mkdir()
 
@@ -245,7 +279,6 @@ class TestKluisAppUI:
         assert app.tabs.currentIndex() == 1
         assert app.tab_manage.inp_vault_file.text() == str(bundle_dir)
 
-        # 4. Drop los bestand (geen kluis/geen map) -> waarschuwing
         file_path = tmp_path / "regular.txt"
         file_path.write_text("hello")
         mime4 = QMimeData()
@@ -276,15 +309,12 @@ class TestKluisAppUI:
         mocker.patch("subprocess.run")
         mocker.patch("os.path.exists", return_value=True)
 
-        # Klik ontgrendelen
         qtbot.mouseClick(tab.btn_unlock, Qt.MouseButton.LeftButton)
 
-        # Verifieer dat mount in lijst staat
         assert tab.mounts_list.count() == 1
         item = tab.mounts_list.item(0)
         assert "test.dmg" in item.text()
 
-        # Selecteer item en klik vergrendelen
         tab.mounts_list.setCurrentItem(item)
         mock_run = mocker.patch("subprocess.run")
         mock_run.return_value.returncode = 0

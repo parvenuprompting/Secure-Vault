@@ -14,8 +14,8 @@ logger = logging.getLogger("VaultEngine")
 class VaultEngine:
     """
     Verantwoordelijk voor alle systeem-operaties:
-    Padvalidatie, grootte berekenen, geëncrypteerde DMG/SparseBundle aanmaken,
-    ontgrendelen/mounten en veilig vergrendelen/uitwerpen.
+    Padvalidatie, grootte berekening, AES-256 geëncrypteerde kluis-aanmaak (UDZO, UDRW, UDSB/SparseBundle),
+    macOS Keychain integratie, fouthandeling, notificaties, ontgrendelen en veilig vergrendelen.
     Volledig ontkoppeld van de UI.
     """
 
@@ -26,6 +26,141 @@ class VaultEngine:
     }
 
     _active_mounts: Dict[str, str] = {}  # {mount_point: vault_path}
+
+    @staticmethod
+    def parse_hdiutil_error(stderr: str) -> str:
+        """
+        Converteert ruwe hdiutil stderr output naar duidelijke Nederlandstalige meldingen.
+        """
+        if not stderr:
+            return "Onbekende hdiutil fout."
+
+        err_lower = stderr.lower()
+        if "checksum incorrect" in err_lower or "authentication failed" in err_lower or "invalid argument" in err_lower:
+            return "❌ Wachtwoord is onjuist of het kluisbestand is beschadigd."
+        elif "no mountable file systems" in err_lower:
+            return "❌ Kan bestandssysteem niet koppelen. Het kluisbestand is mogelijk niet van een ondersteund type."
+        elif "resource busy" in err_lower or "busy" in err_lower:
+            return "⚠️ Kluis is nog in gebruik door Finder of een ander programma. Sluit geopende bestanden en probeer opnieuw."
+        elif "permission denied" in err_lower or "operation not permitted" in err_lower:
+            return "❌ Geen toegang. Controleer lees- en schrijfrechten op dit bestand."
+        elif "file exists" in err_lower:
+            return "⚠️ Een kluis met deze naam bestaat al op de doelbestemming."
+
+        return f"hdiutil fout: {stderr.strip()}"
+
+    @staticmethod
+    def send_macos_notification(title: str, message: str) -> None:
+        """
+        Verstuurt een native macOS notificatie via osascript. Faalt stil als notificaties uit staan.
+        """
+        try:
+            cmd = ["osascript", "-e", f'display notification "{message}" with title "{title}"']
+            subprocess.run(cmd, capture_output=True, timeout=3)
+        except Exception as e:
+            logger.debug("Could not send macOS notification: %s", e)
+
+    @staticmethod
+    def save_keychain_password(vault_path: str, password: str) -> bool:
+        """
+        Slaat een wachtwoord veilig op in macOS Sleutelhangertoegang (Keychain) voor deze kluis.
+        """
+        if not vault_path or not password:
+            return False
+        try:
+            abs_path = os.path.abspath(vault_path)
+            cmd = [
+                "security",
+                "add-generic-password",
+                "-a",
+                abs_path,
+                "-s",
+                "SecureVault",
+                "-w",
+                password,
+                "-U",
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            return res.returncode == 0
+        except Exception as e:
+            logger.warning("Keychain save failed: %s", e)
+            return False
+
+    @staticmethod
+    def get_keychain_password(vault_path: str) -> Optional[str]:
+        """
+        Haalt een opgeslagen wachtwoord op uit macOS Keychain voor deze kluis.
+        """
+        if not vault_path:
+            return None
+        try:
+            abs_path = os.path.abspath(vault_path)
+            cmd = [
+                "security",
+                "find-generic-password",
+                "-a",
+                abs_path,
+                "-s",
+                "SecureVault",
+                "-w",
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if res.returncode == 0 and res.stdout:
+                return res.stdout.strip()
+            return None
+        except Exception as e:
+            logger.warning("Keychain fetch failed: %s", e)
+            return None
+
+    @staticmethod
+    def delete_keychain_password(vault_path: str) -> bool:
+        """
+        Verwijdert een bewaard wachtwoord uit macOS Keychain voor deze kluis.
+        """
+        if not vault_path:
+            return False
+        try:
+            abs_path = os.path.abspath(vault_path)
+            cmd = [
+                "security",
+                "delete-generic-password",
+                "-a",
+                abs_path,
+                "-s",
+                "SecureVault",
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            return res.returncode == 0
+        except Exception as e:
+            logger.warning("Keychain delete failed: %s", e)
+            return False
+
+    def get_vault_disk_size(self, vault_path: str) -> str:
+        """
+        Berekent de daadwerkelijke omvang op schijf van een .dmg of .sparsebundle.
+        """
+        if not os.path.exists(vault_path):
+            return "0 MB"
+        try:
+            total_bytes = 0
+            if os.path.isdir(vault_path):
+                for dirpath, _, filenames in os.walk(vault_path):
+                    for f in filenames:
+                        fp = os.path.join(dirpath, f)
+                        try:
+                            if not os.path.islink(fp):
+                                total_bytes += os.path.getsize(fp)
+                        except OSError:
+                            continue
+            else:
+                total_bytes = os.path.getsize(vault_path)
+
+            size_mb = total_bytes / (1024 * 1024)
+            if size_mb >= 1024:
+                return f"{size_mb / 1024:.1f} GB"
+            return f"{int(size_mb)} MB"
+        except Exception:
+            return "Onbekend"
 
     def validate_paths(self, source: str, dest_folder: str) -> None:
         """
@@ -199,7 +334,7 @@ class VaultEngine:
                     log("⚠️ Annuleren ontvangen... Bezig met stopzetten van processen...")
                     process.terminate()
                     try:
-                        process.wait(timeout=3)
+                        process.wait(timeout=2)
                     except subprocess.TimeoutExpired:
                         process.kill()
                     self.cleanup(dmg_final)
@@ -210,11 +345,12 @@ class VaultEngine:
 
             if process.returncode != 0:
                 self.cleanup(dmg_final)
-                error_msg = stderr.strip() if stderr else "Onbekende hdiutil fout."
-                log(f"❌ Encryptiefout: {error_msg}")
-                return False, f"hdiutil fout ({process.returncode}): {error_msg}"
+                parsed_err = self.parse_hdiutil_error(stderr)
+                log(f"❌ Encryptiefout: {parsed_err}")
+                return False, parsed_err
 
             log(f"🎉 Succes! Kluis is aangemaakt op:\n{dmg_final}")
+            self.send_macos_notification("SecureVault", f"Kluis '{name}' is succesvol aangemaakt!")
             return True, dmg_final
 
         except Exception as e:
@@ -232,7 +368,6 @@ class VaultEngine:
     def mount_vault(self, vault_path: str, password: str) -> Tuple[bool, str, str]:
         """
         Ontgrendelt en koppelt een bestaande kluis (.dmg of .sparsebundle) via hdiutil attach -stdinpass.
-        Retourneert: (success, message, mount_point)
         """
         if not vault_path or not os.path.exists(vault_path):
             return False, f"Kluisbestand niet gevonden: '{vault_path}'", ""
@@ -268,9 +403,9 @@ class VaultEngine:
             stdout, stderr = process.communicate()
 
             if process.returncode != 0:
-                err_msg = stderr.strip() if stderr else "Wachtwoord onjuist of bestand beschadigd."
-                logger.error("Failed to attach vault %s: %s", vault_path, err_msg)
-                return False, f"Kon kluis niet ontgrendelen: {err_msg}", ""
+                parsed_err = self.parse_hdiutil_error(stderr)
+                logger.error("Failed to attach vault %s: %s", vault_path, parsed_err)
+                return False, parsed_err, ""
 
             self._active_mounts[mount_point] = vault_path
             logger.info("Vault %s mounted at %s", vault_path, mount_point)
@@ -308,18 +443,30 @@ class VaultEngine:
             logger.info("Vault unmounted at %s", mount_point)
             return True, "Kluis is veilig vergrendeld en afgesloten."
 
-        err_msg = res.stderr.strip()
-        logger.warning("Unmount failed for %s: %s", mount_point, err_msg)
-        return (
-            False,
-            f"Kon kluis niet uitwerpen ({err_msg}).\n\n"
-            "Mogelijk staan er bestanden of een Finder-venster open op deze kluis. "
-            "Sluit geopende bestanden en probeer het opnieuw.",
-        )
+        parsed_err = self.parse_hdiutil_error(res.stderr)
+        logger.warning("Unmount failed for %s: %s", mount_point, parsed_err)
+        return False, parsed_err
+
+    def unmount_all_vaults(self) -> int:
+        """
+        Werpt alle actieve geopende kluizen uit (bijv. bij Auto-Lock).
+        Retourneert het aantal succesvol ontkoppelde kluizen.
+        """
+        unmounted_count = 0
+        mounts = list(self._active_mounts.keys())
+        for mnt in mounts:
+            success, _ = self.unmount_vault(mnt)
+            if success:
+                unmounted_count += 1
+        if unmounted_count > 0:
+            self.send_macos_notification(
+                "SecureVault Auto-Lock",
+                f"{unmounted_count} kluis(en) automatisch vergrendeld wegens inactiviteit.",
+            )
+        return unmounted_count
 
     def get_active_mounts(self) -> Dict[str, str]:
         """Retourneert een kopie van het woordenboek met actieve mounts {mount_point: vault_path}."""
-        # Opschonen van mounts die inmiddels extern ontkoppeld zijn
         inactive = [m for m in self._active_mounts if not os.path.exists(m)]
         for m in inactive:
             del self._active_mounts[m]
