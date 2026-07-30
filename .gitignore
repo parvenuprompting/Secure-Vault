@@ -3,6 +3,10 @@ build/
 dist/
 *.spec
 
+# Negeer gegenereerde DMG en SparseBundle bestanden/installers
+*.dmg
+*.sparsebundle
+
 # Negeer Python cache & test artifacts
 __pycache__/
 .pytest_cache/
