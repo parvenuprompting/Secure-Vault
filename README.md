@@ -6,9 +6,14 @@
 
 De applicatie is geschreven in **Python 3** met **PySide6 (Qt)** en maakt gebruik van native macOS-beveiligingstools (`hdiutil`) met **APFS** en **AES‑256 encryptie**. Geen externe encryptielibraries, geen cloud, geen vendor lock‑in — alles blijft lokaal op je Mac.
 
-![Status](https://img.shields.io/badge/Status-Stable-green)
-![Platform](https://img.shields.io/badge/Platform-macOS%20Only-lightgrey)
-![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
+[![Version](https://img.shields.io/badge/Version-v2.0.0-blue.svg)](https://github.com/parvenuprompting/secure-vault-v2)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20Only-lightgrey?logo=apple&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
+[![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Qt](https://img.shields.io/badge/Qt-PySide6%206.6%2B-41CD52?logo=qt&logoColor=white)](https://www.qt.io/)
+[![Coverage](https://img.shields.io/badge/Coverage-93%25-brightgreen?logo=pytest&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
+[![Encryption](https://img.shields.io/badge/Encryption-AES--256-red?logo=pre-commit&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
+[![FileSystem](https://img.shields.io/badge/FileSystem-APFS-000000?logo=apple&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > [!IMPORTANT]
 > **macOS Exclusief**: Deze applicatie is specifiek gebouwd voor macOS en vereist het ingebouwde command-line hulpprogramma `hdiutil`.
@@ -47,7 +52,10 @@ Secure-Vault/
 │   ├── ui.py            # GUI-componenten (QTabWidget, CreateVaultTab, ManageVaultTab)
 │   └── vault_engine.py  # Kernlogica voor hdiutil, APFS, UDZO/UDRW/UDSB, mount & unmount
 ├── assets/              # Afbeeldingen, iconen en installer-achtergrond
-├── tests/               # Unit- & integratietests
+├── conftest.py          # Pytest fixtures & headless Qt configuratie
+├── tests/               # Unit- & Pytest-Qt GUI testsuite (93% coverage)
+│   ├── test_vault_engine.py
+│   └── test_ui.py
 ├── bouw_alles.py        # Script voor het bouwen van .app & installer .dmg
 ├── requirements.txt     # Python afhankelijkheden
 └── README.md            # Documentatie
@@ -58,8 +66,23 @@ Secure-Vault/
 ## 🚀 Installatie & Starten
 
 ```bash
-pip3 install -r requirements.txt
+# Virtuele omgeving aanmaken & afhankelijkheden installeren
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# Applicatie starten
 python3 main.py
+```
+
+---
+
+## 🧪 Tests & Coverage
+
+Voer de geautomatiseerde pytest suite uit met coverage rapportage:
+
+```bash
+pytest --cov=src --cov-report=term-missing
 ```
 
 ---
@@ -69,6 +92,12 @@ python3 main.py
 Om een op zichzelf staande macOS `.app` en een `.dmg` installer te bouwen:
 
 ```bash
-pip3 install dmgbuild pyinstaller
+pip install dmgbuild pyinstaller
 python3 bouw_alles.py
 ```
+
+---
+
+## 📄 Licentie
+
+Gepubliceerd onder de MIT Licentie.
