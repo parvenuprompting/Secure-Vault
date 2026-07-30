@@ -238,6 +238,25 @@ class VaultEngine:
 
         return True, msg, score
 
+    @staticmethod
+    def generate_secure_password(length: int = 16) -> str:
+        """
+        Genereert een cryptografisch sterk, willekeurig wachtwoord met Python's secrets module.
+        """
+        import secrets
+        import string
+
+        alphabet = string.ascii_letters + string.digits + "!@#$%^&*()_+-="
+        while True:
+            password = "".join(secrets.choice(alphabet) for _ in range(length))
+            if (
+                any(c.islower() for c in password)
+                and any(c.isupper() for c in password)
+                and any(c.isdigit() for c in password)
+                and any(not c.isalnum() for c in password)
+            ):
+                return password
+
     def cleanup(self, path: str) -> None:
         """Veilige verwijdering van een bestand of map als het bestaat."""
         if os.path.exists(path):

@@ -232,9 +232,24 @@ class CreateVaultTab(QWidget):
         layout.addWidget(self.combo_format)
         layout.addSpacing(6)
 
-        # Wachtwoord inputs
+        # Wachtwoord inputs & Generator knop
+        pw_header_row = QHBoxLayout()
+        lbl_pw_title = QLabel("WACHTWOORD")
+        lbl_pw_title.setObjectName("inputLabel")
+        pw_header_row.addWidget(lbl_pw_title)
+        pw_header_row.addStretch()
+
+        self.btn_gen_pass = QPushButton("🎲 Genereer Sterk Wachtwoord")
+        self.btn_gen_pass.setObjectName("browseBtn")
+        self.btn_gen_pass.setToolTip("Genereer automatisch een cryptografisch sterk wachtwoord en kopieer naar klembord")
+        self.btn_gen_pass.setCursor(Qt.PointingHandCursor)
+        self.btn_gen_pass.clicked.connect(self.generate_and_copy_password)
+        pw_header_row.addWidget(self.btn_gen_pass)
+
+        layout.addLayout(pw_header_row)
+
         self.inp_pass = ModernInput(
-            "WACHTWOORD",
+            "",
             is_password=True,
             tooltip="Minimaal 8 tekens. Gebruik cijfers en speciale tekens voor extra veiligheid.",
         )
@@ -310,6 +325,28 @@ class CreateVaultTab(QWidget):
         d = QFileDialog.getExistingDirectory(self, "Kies doelmap")
         if d:
             self.inp_dest.setText(d)
+
+    def generate_and_copy_password(self) -> None:
+        self.app.reset_auto_lock_timer()
+        new_pw = VaultEngine.generate_secure_password(16)
+        self.inp_pass.setText(new_pw)
+        self.inp_pass_confirm.setText(new_pw)
+
+        # Automatisch kopiëren naar klembord
+        QGuiApplication.clipboard().setText(new_pw)
+
+        # Waarschuwing / Informatiewens over het bewaren en noteren van het wachtwoord
+        box = QMessageBox(self)
+        box.setWindowTitle("Wachtwoord Gegenereerd & Gekopieerd")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText("🎲 <b>Sterk Wachtwoord Gegenereerd & Gekopieerd</b>")
+        box.setInformativeText(
+            "Het gegenereerde wachtwoord is automatisch ingevuld én <b>gekopieerd naar je klembord</b>!<br><br>"
+            "⚠️ <b>BELANGRIJK BERICHT:</b><br>"
+            "Noteer of bewaar dit wachtwoord direct op een veilige plek (zoals een wachtwoordmanager of kluis).<br><br>"
+            "<i>Als je dit wachtwoord vergeet, is het technisch <u>onmogelijk</u> om de bestanden in de kluis te herstellen!</i>"
+        )
+        box.exec()
 
     def validate_passwords(self) -> None:
         pw = self.inp_pass.text()

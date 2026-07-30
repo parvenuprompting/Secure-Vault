@@ -159,6 +159,13 @@ class TestPasswordStrengthAndErrorParsing:
         assert "hdiutil fout: Custom error" in VaultEngine.parse_hdiutil_error("Custom error")
         assert VaultEngine.parse_hdiutil_error("") == "Onbekende hdiutil fout."
 
+    def test_generate_secure_password(self) -> None:
+        pw = VaultEngine.generate_secure_password(16)
+        assert len(pw) == 16
+        is_valid, msg, score = VaultEngine.check_password_strength(pw)
+        assert is_valid is True
+        assert score >= 75
+
 
 class TestKeychainAndNotifications:
     """Tests voor Keychain integratie en macOS notificaties."""

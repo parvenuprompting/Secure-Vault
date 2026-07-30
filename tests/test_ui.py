@@ -91,6 +91,20 @@ class TestKluisAppUI:
         app.combo_autolock.setCurrentIndex(0)  # Uit
         assert app.auto_lock_timer.isActive() is False
 
+    def test_generate_and_copy_password_ui(self, qtbot: pytest.FixtureRequest, mocker: pytest.FixtureRequest) -> None:
+        app = KluisApp()
+        qtbot.addWidget(app)
+        app.show()
+
+        tab = app.tab_create
+        mock_info = mocker.patch.object(QMessageBox, "exec")
+        qtbot.mouseClick(tab.btn_gen_pass, Qt.MouseButton.LeftButton)
+
+        gen_pw = tab.inp_pass.text()
+        assert len(gen_pw) == 16
+        assert tab.inp_pass_confirm.text() == gen_pw
+        assert mock_info.called
+
     def test_mounts_list_double_click_and_context_menu(self, qtbot: pytest.FixtureRequest, mocker: pytest.FixtureRequest) -> None:
         app = KluisApp()
         qtbot.addWidget(app)
