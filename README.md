@@ -1,22 +1,23 @@
 # 🔒 SecureVault for Mac
 
-![Screenshot van de applicatie](screenshot.png)
+![Screenshot van SecureVault](screenshot.png)
 
-**SecureVault** is een moderne, minimalistische desktopapplicatie voor macOS waarmee je eenvoudig mappen kunt beveiligen in versleutelde kluizen (`.dmg` disk images en `.sparsebundle` meegroeiende pakketten).
+**SecureVault** is een moderne, minimalistische desktopapplicatie voor macOS waarmee je eenvoudig gevoelige mappen kunt beveiligen in geëncrypteerde kluizen (`.dmg` disk images en `.sparsebundle` meegroeiende pakketten).
 
-De applicatie is geschreven in **Python 3** met **PySide6 (Qt)** en maakt gebruik van native macOS-beveiligingstools (`hdiutil`) met **APFS** en **AES‑256 encryptie**. Geen externe encryptielibraries, geen cloud, geen vendor lock‑in — alles blijft lokaal op je Mac.
+De applicatie is geschreven in **Python 3** met **PySide6 (Qt)** en maakt gebruik van native macOS-beveiligingstools (`hdiutil`) met **APFS** en **AES‑256 encryptie**. Geen externe encryptielibraries, geen cloud opvaardigen, geen vendor lock‑in — alles blijft 100% lokaal op je Mac.
 
-[![Version](https://img.shields.io/badge/Version-v2.0.0-blue.svg)](https://github.com/parvenuprompting/secure-vault-v2)
+[![Version](https://img.shields.io/badge/Version-v2.1.0-blue.svg)](https://github.com/parvenuprompting/secure-vault-v2)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20Only-lightgrey?logo=apple&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Qt](https://img.shields.io/badge/Qt-PySide6%206.6%2B-41CD52?logo=qt&logoColor=white)](https://www.qt.io/)
-[![Coverage](https://img.shields.io/badge/Coverage-93%25-brightgreen?logo=pytest&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
-[![Encryption](https://img.shields.io/badge/Encryption-AES--256-red?logo=pre-commit&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
-[![FileSystem](https://img.shields.io/badge/FileSystem-APFS-000000?logo=apple&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
+[![Qt](https://img.shields.io/badge/Qt-PySide6-41CD52?logo=qt&logoColor=white)](https://www.qt.io/)
+[![Tests](https://img.shields.io/badge/Tests-49%20passed-brightgreen?logo=pytest&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
+[![Coverage](https://img.shields.io/badge/Coverage-91%25-brightgreen?logo=pytest&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
+[![Encryption](https://img.shields.io/badge/Encryption-AES--256-red?logo=apple-pay&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
+[![Keychain](https://img.shields.io/badge/Keychain-macOS%20Keychain-success?logo=apple&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > [!IMPORTANT]
-> **macOS Exclusief**: Deze applicatie is specifiek gebouwd voor macOS en vereist het ingebouwde command-line hulpprogramma `hdiutil`.
+> **macOS Exclusief**: Deze applicatie is specifiek gebouwd voor macOS en maakt gebruik van het ingebouwde command-line hulpprogramma `hdiutil` en de macOS `Keychain`.
 
 ---
 
@@ -25,21 +26,31 @@ De applicatie is geschreven in **Python 3** met **PySide6 (Qt)** en maakt gebrui
 * **🔐 AES‑256 Encryptie & APFS**
   Gebruikt de industriestandaard voor encryptie via macOS `hdiutil` op het moderne APFS bestandssysteem.
 
-* **📂 3 Kluisindelingen (Read-Only & Read-Write)**
-  - 📦 **Gecomprimeerd (`UDZO`)**: Vaste omvang, gecomprimeerd en alleen-lezen (ideaal voor archivering).
+* **📂 3 Kluisindelingen (Read-Only, Read-Write & SparseBundle)**
+  - 📦 **Gecomprimeerd (`UDZO`)**: Vaste omvang, gecomprimeerd en alleen-lezen (ideaal voor veilige archivering).
   - 📝 **Lees / Schrijf (`UDRW`)**: Bestanden toevoegen of verwijderen direct vanuit macOS Finder.
-  - 🚀 **Meegroeiend (`UDSB` / Sparse Bundle)**: Neemt alleen de daadwerkelijk gebruikte schijfruimte in en groeit automatisch mee wanneer je bestanden toevoegt in Finder!
+  - 🚀 **Meegroeiend (`UDSB` / Sparse Bundle)**: Neemt alleen de daadwerkelijk gebruikte schijfruimte in en groeit automatisch mee wanneer je bestanden toevoegt!
 
-* **🔓 Kluis Manager & Finder-integratie**
-  - Ontgrendel bestaande `.dmg` of `.sparsebundle` kluizen met je wachtwoord.
-  - Open met één klik in macOS Finder (**"🔓 ONTGRENDELEN IN FINDER"**).
-  - Bekijk actieve geopende kluizen en vergrendel ze veilig (**"🔒 VEILIG VERGRENDELEN"**).
+* **🗝️ macOS Keychain Integratie**
+  Sla kluiswachtwoorden veilig op in macOS Sleutelhangertoegang (Keychain) voor 1-klik ontgrendelen zonder telkens je wachtwoord opnieuw in te voeren.
 
-* **🛡️ Wachtwoordveiligheid & Bevestiging**
-  Real-time wachtwoordsterkte-check, visuele vergelijking tussen wachtwoorden, show/hide toggle en veilige geheugen-opschoning (`bytearray` zeroing).
+* **🎲 Wachtwoord Generator & Sterktemeter**
+  Genereer cryptografisch sterke, willekeurige wachtwoorden met 1-klik automatische kopie naar je klembord en real-time visuele sterktemeting.
 
-* **⛔ Annuleer-mechanisme**
-  Processen kunnen op elk moment veilig geannuleerd worden met automatische opruiming van tijdelijke schijven.
+* **⏱️ Auto-Lock Timer**
+  Automatische beveiligingsvergrendeling na een in te stellen periode van inactiviteit (bijv. 5, 15 of 30 minuten) om geopende kluizen te beschermen.
+
+* **🔓 Kluis Manager & Context Menu**
+  - Ontgrendel bestaande `.dmg` of `.sparsebundle` kluizen met je wachtwoord of vanuit Keychain.
+  - Open geopende kluizen direct in macOS Finder met **"🔓 ONTGRENDELEN IN FINDER"**.
+  - Bekijk actieve geopende kluizen en recente kluizen via een handig rechtermuisklik contextmenu.
+  - Vergrendel geopende kluizen veilig met één klik (**"🔒 VEILIG VERGRENDELEN"**).
+
+* **💬 Nederlandstalige Fouthandeling & Notificaties**
+  Duidelijke, vriendelijke foutmeldingen (bijv. verkeerd wachtwoord, in gebruik door Finder) en native macOS notificaties bij acties.
+
+* **🛡️ Zero-Trust Security & Opschoning**
+  Geen cloud, geen telemetry of externe servers. Gevoelige gegevens in het geheugen worden na gebruik overschreven (`bytearray` zeroing).
 
 ---
 
@@ -49,11 +60,11 @@ De applicatie is geschreven in **Python 3** met **PySide6 (Qt)** en maakt gebrui
 Secure-Vault/
 ├── main.py              # Hoofd-entrypoint (start de PySide6 applicatie)
 ├── src/
-│   ├── ui.py            # GUI-componenten (QTabWidget, CreateVaultTab, ManageVaultTab)
-│   └── vault_engine.py  # Kernlogica voor hdiutil, APFS, UDZO/UDRW/UDSB, mount & unmount
+│   ├── ui.py            # GUI-componenten (CreateVaultTab, ManageVaultTab, Auto-Lock, Keychain, Dialogs)
+│   └── vault_engine.py  # Kernlogica voor hdiutil, APFS, UDZO/UDRW/UDSB, Keychain, mount & unmount
 ├── assets/              # Afbeeldingen, iconen en installer-achtergrond
 ├── conftest.py          # Pytest fixtures & headless Qt configuratie
-├── tests/               # Unit- & Pytest-Qt GUI testsuite (93% coverage)
+├── tests/               # Unit- & Pytest-Qt GUI testsuite (49 tests, 91% coverage)
 │   ├── test_vault_engine.py
 │   └── test_ui.py
 ├── bouw_alles.py        # Script voor het bouwen van .app & installer .dmg
@@ -100,4 +111,4 @@ python3 bouw_alles.py
 
 ## 📄 Licentie
 
-Gepubliceerd onder de MIT Licentie.
+Gepubliceerd onder de [MIT Licentie](LICENSE).
