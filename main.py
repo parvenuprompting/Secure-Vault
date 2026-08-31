@@ -24,7 +24,7 @@ def main() -> None:
 
     window = KluisApp()
     window.setWindowTitle(f"SecureVault v{VERSION}")
-    window.show()
+    window.showMaximized()
 
     sys.exit(app.exec())
 

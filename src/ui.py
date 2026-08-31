@@ -6,7 +6,7 @@ import threading
 from typing import Optional, List
 
 from PySide6.QtCore import QSize, Qt, QThread, Signal, QSettings, QTimer
-from PySide6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPainter, QPixmap, QGuiApplication, QAction, QColor
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QGuiApplication, QAction
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QTabWidget,
     QTextEdit,
     QToolButton,
@@ -137,6 +139,7 @@ class ModernInput(QWidget):
             self.btn_toggle.setToolTip("Wachtwoord tonen / verbergen")
             self.btn_toggle.setCursor(Qt.PointingHandCursor)
             self.btn_toggle.setObjectName("togglePwBtn")
+            self.btn_toggle.setFixedSize(36, 36)
             self.btn_toggle.clicked.connect(self.toggle_password_visibility)
             row.addWidget(self.btn_toggle)
 
@@ -145,6 +148,7 @@ class ModernInput(QWidget):
             btn_browse.setToolTip("Selecteer via de bestandskiezer")
             btn_browse.setCursor(Qt.PointingHandCursor)
             btn_browse.setObjectName("browseBtn")
+            btn_browse.setFixedWidth(100)
             btn_browse.clicked.connect(browse_func)
             row.addWidget(btn_browse)
 
@@ -171,11 +175,11 @@ class ModernInput(QWidget):
     def set_border_status(self, status: Optional[str]) -> None:
         if status == "valid":
             self.input.setStyleSheet(
-                "border: 1px solid #4CAF50; background: rgba(30, 45, 30, 0.8);"
+                "border: 1.5px solid #111827; background-color: #FFFFFF;"
             )
         elif status == "invalid":
             self.input.setStyleSheet(
-                "border: 1px solid #FF5252; background: rgba(45, 30, 30, 0.8);"
+                "border: 1.5px solid #6B7280; background-color: #F9FAFB;"
             )
         else:
             self.input.setStyleSheet("")
@@ -189,8 +193,18 @@ class CreateVaultTab(QWidget):
         self.setup_ui()
 
     def setup_ui(self) -> None:
-        layout = QVBoxLayout()
-        layout.setContentsMargins(10, 10, 10, 10)
+        # Scrollbare wrapper — content is altijd bereikbaar ongeacht venstergrootte
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(8)
 
         self.inp_source = ModernInput(
             "WELKE MAP?",
@@ -225,6 +239,11 @@ class CreateVaultTab(QWidget):
 
         self.combo_format = QComboBox()
         self.combo_format.setObjectName("formatCombo")
+        # Voorkom dat langste optietekst de minimumbreedte van de widget dicteert
+        self.combo_format.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.combo_format.setMinimumContentsLength(20)
         self.combo_format.addItem(
             "📦 Gecomprimeerd (Alleen-Lezen .dmg) - Kleinste omvang", "UDZO"
         )
@@ -322,8 +341,13 @@ class CreateVaultTab(QWidget):
             "Status log verschijnt hier... (of sleep een map naar de app)"
         )
         layout.addWidget(self.log_view)
+        layout.addStretch()
 
-        self.setLayout(layout)
+        scroll.setWidget(content)
+        outer = QVBoxLayout()
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
+        self.setLayout(outer)
 
     def browse_source(self) -> None:
         d = QFileDialog.getExistingDirectory(self, "Kies bronmap")
@@ -386,22 +410,22 @@ class CreateVaultTab(QWidget):
 
         if score < 50:
             self.strength_bar.setStyleSheet(
-                "QProgressBar#strengthBar::chunk { background: #FF5252; }"
+                "QProgressBar#strengthBar::chunk { background-color: #9CA3AF; }"
             )
             self.lbl_strength.setText(f"Sterkte: {msg}")
-            self.lbl_strength.setStyleSheet("color: #FF5252;")
+            self.lbl_strength.setStyleSheet("color: #6B7280; font-size: 11px;")
         elif score < 75:
             self.strength_bar.setStyleSheet(
-                "QProgressBar#strengthBar::chunk { background: #FFC107; }"
+                "QProgressBar#strengthBar::chunk { background-color: #4B5563; }"
             )
             self.lbl_strength.setText(f"Sterkte: {msg}")
-            self.lbl_strength.setStyleSheet("color: #FFC107;")
+            self.lbl_strength.setStyleSheet("color: #374151; font-size: 11px;")
         else:
             self.strength_bar.setStyleSheet(
-                "QProgressBar#strengthBar::chunk { background: #4CAF50; }"
+                "QProgressBar#strengthBar::chunk { background-color: #111827; }"
             )
             self.lbl_strength.setText(f"Sterkte: {msg}")
-            self.lbl_strength.setStyleSheet("color: #4CAF50;")
+            self.lbl_strength.setStyleSheet("color: #111827; font-size: 11px; font-weight: 600;")
 
         if is_valid:
             self.inp_pass.set_border_status("valid")
@@ -412,11 +436,11 @@ class CreateVaultTab(QWidget):
             if pw == pw_confirm:
                 self.inp_pass_confirm.set_border_status("valid")
                 self.lbl_match.setText("✅ Wachtwoorden komen overeen")
-                self.lbl_match.setStyleSheet("color: #4CAF50;")
+                self.lbl_match.setStyleSheet("color: #111827; font-size: 11px; font-weight: 600;")
             else:
                 self.inp_pass_confirm.set_border_status("invalid")
                 self.lbl_match.setText("❌ Wachtwoorden komen niet overeen")
-                self.lbl_match.setStyleSheet("color: #FF5252;")
+                self.lbl_match.setStyleSheet("color: #6B7280; font-size: 11px;")
         else:
             self.inp_pass_confirm.set_border_status(None)
             self.lbl_match.setText("")
@@ -529,8 +553,18 @@ class ManageVaultTab(QWidget):
         self.setup_ui()
 
     def setup_ui(self) -> None:
-        layout = QVBoxLayout()
-        layout.setContentsMargins(10, 10, 10, 10)
+        # Scrollbare wrapper — content is altijd bereikbaar ongeacht venstergrootte
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(8)
 
         # RECENT VAULTS DROPDOWN
         lbl_recents = QLabel("🕒 RECENT GEOPENDE KLUIZEN")
@@ -541,8 +575,11 @@ class ManageVaultTab(QWidget):
         self.combo_recents = QComboBox()
         self.combo_recents.setObjectName("recentsCombo")
         self.combo_recents.setToolTip("Selecteer een recent gebruikte kluis uit het overzicht")
-        self.combo_recents.currentIndexChanged.connect(self.on_recent_selected)
-        rec_row.addWidget(self.combo_recents)
+        # Voorkom dat bestandspaden de minimumbreedte dicteren
+        self.combo_recents.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.combo_recents.setMinimumContentsLength(20)
 
         self.btn_open_last = QPushButton("⚡ OPEN LAATSTE")
         self.btn_open_last.setObjectName("browseBtn")
@@ -618,7 +655,13 @@ class ManageVaultTab(QWidget):
         btn_row.addWidget(self.btn_lock_selected)
 
         layout.addLayout(btn_row)
-        self.setLayout(layout)
+        layout.addStretch()
+
+        scroll.setWidget(content)
+        outer = QVBoxLayout()
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
+        self.setLayout(outer)
 
         self.populate_recents()
         self.refresh_mounts()
@@ -808,8 +851,8 @@ class KluisApp(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SecureVault Pro")
-        self.resize(560, 780)
-        self.setMinimumSize(520, 720)
+        self.resize(660, 840)
+        self.setMinimumSize(560, 720)
         self.setObjectName("MainWindow")
         self.setAcceptDrops(True)
 
@@ -817,7 +860,6 @@ class KluisApp(QWidget):
         project_root = os.path.dirname(current_dir)
 
         self.path_logo = os.path.join(project_root, "assets", "logo.png")
-        self.path_bg = os.path.join(project_root, "assets", "background.png")
 
         # Auto-Lock Timer Setup
         self.auto_lock_timer = QTimer(self)
@@ -825,23 +867,28 @@ class KluisApp(QWidget):
 
         self.setup_ui()
         self.apply_styles()
+        self.center_on_screen()
+
+    def center_on_screen(self) -> None:
+        """Centreer het venster netjes op het actieve scherm."""
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            screen_geo = screen.availableGeometry()
+            geo = self.frameGeometry()
+            geo.moveCenter(screen_geo.center())
+            self.move(geo.topLeft())
 
     def setup_ui(self) -> None:
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(24, 24, 24, 24)
+        main_layout.setContentsMargins(32, 20, 32, 20)
+        main_layout.setSpacing(14)
 
         # HEADER
         header_layout = QHBoxLayout()
-        logo_label = QLabel()
-        if os.path.exists(self.path_logo):
-            pixmap = QPixmap(self.path_logo)
-            scaled_pixmap = pixmap.scaled(
-                QSize(42, 42), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
-            )
-            logo_label.setPixmap(scaled_pixmap)
+        header_layout.setSpacing(12)
 
         title_container = QVBoxLayout()
-        title_container.setSpacing(0)
+        title_container.setSpacing(2)
         title = QLabel("SecureVault")
         title.setObjectName("title")
         subtitle = QLabel("AES-256 Encrypted macOS Vault Manager")
@@ -853,6 +900,8 @@ class KluisApp(QWidget):
         # AUTO LOCK COMBO IN HEADER
         self.combo_autolock = QComboBox()
         self.combo_autolock.setObjectName("autolockCombo")
+        self.combo_autolock.setMinimumWidth(170)
+        self.combo_autolock.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.combo_autolock.addItem("⏰ Auto-Lock: Uit", 0)
         self.combo_autolock.addItem("⏰ Auto-Lock: 15 min", 15)
         self.combo_autolock.addItem("⏰ Auto-Lock: 30 min", 30)
@@ -865,25 +914,24 @@ class KluisApp(QWidget):
         btn_help.setToolTip("Handleiding en informatie")
         btn_help.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_help.setObjectName("helpBtn")
+        btn_help.setFixedSize(36, 36)
         btn_help.clicked.connect(self.show_help)
 
-        title_center_layout = QHBoxLayout()
-        title_center_layout.addWidget(logo_label)
-        title_center_layout.addSpacing(10)
-        title_center_layout.addLayout(title_container)
-
-        header_layout.addLayout(title_center_layout)
+        header_layout.addLayout(title_container)
         header_layout.addStretch()
         header_layout.addWidget(self.combo_autolock)
         header_layout.addSpacing(6)
         header_layout.addWidget(btn_help)
 
         main_layout.addLayout(header_layout)
-        main_layout.addSpacing(10)
 
         # TABS
         self.tabs = QTabWidget()
         self.tabs.setObjectName("mainTabs")
+        self.tabs.setElideMode(Qt.TextElideMode.ElideNone)
+        if self.tabs.tabBar():
+            self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideNone)
+            self.tabs.tabBar().setExpanding(False)
         self.tabs.currentChanged.connect(lambda idx: self.reset_auto_lock_timer())
 
         self.tab_create = CreateVaultTab(self)
@@ -916,22 +964,6 @@ class KluisApp(QWidget):
 
     def apply_styles(self) -> None:
         self.setStyleSheet(stylesheet())
-
-    def paintEvent(self, event) -> None:
-        super().paintEvent(event)
-
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#F4F1E9"))
-
-        if os.path.exists(self.path_bg):
-            pixmap = QPixmap(self.path_bg)
-
-            target_size = self.size()
-            scaled_pixmap = pixmap.scaled(
-                target_size, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation
-            )
-
-            painter.drawPixmap(0, 0, scaled_pixmap)
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if event.mimeData().hasUrls():

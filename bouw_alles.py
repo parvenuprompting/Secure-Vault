@@ -168,6 +168,11 @@ if __name__ == "__main__":
 
     try:
         bouw_app()
+        # Voorkom dat Spotlight de build map indexeert
+        for folder in ["dist", "build"]:
+            if os.path.exists(folder):
+                with open(os.path.join(folder, ".metadata_never_index"), "w") as f:
+                    pass
         maak_luxe_dmg(v)
     except Exception as e:
         print(f"\n❌ Er ging iets mis tijdens de build: {e}")
