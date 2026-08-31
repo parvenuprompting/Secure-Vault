@@ -2,6 +2,8 @@
 
 ![Screenshot van SecureVault](screenshot.png)
 
+[![CI](https://github.com/parvenuprompting/secure-vault-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/parvenuprompting/secure-vault-v2/actions/workflows/ci.yml)
+
 **SecureVault** is een moderne, minimalistische desktopapplicatie voor macOS waarmee je eenvoudig gevoelige mappen kunt beveiligen in geëncrypteerde kluizen (`.dmg` disk images en `.sparsebundle` meegroeiende pakketten).
 
 De applicatie is geschreven in **Python 3** met **PySide6 (Qt)** en maakt gebruik van native macOS-beveiligingstools (`hdiutil`) met **APFS** en **AES‑256 encryptie**. Geen externe encryptielibraries, geen cloud opvaardigen, geen vendor lock‑in — alles blijft 100% lokaal op je Mac.
@@ -64,9 +66,10 @@ Secure-Vault/
 │   └── vault_engine.py  # Kernlogica voor hdiutil, APFS, UDZO/UDRW/UDSB, Keychain, mount & unmount
 ├── assets/              # Afbeeldingen, iconen en installer-achtergrond
 ├── conftest.py          # Pytest fixtures & headless Qt configuratie
-├── tests/               # Unit- & Pytest-Qt GUI testsuite (49 tests, 91% coverage)
+├── tests/               # Unit- & Pytest-Qt GUI testsuite
 │   ├── test_vault_engine.py
 │   └── test_ui.py
+├── .github/workflows/ci.yml # Linux + macOS import/test-controle
 ├── bouw_alles.py        # Script voor het bouwen van .app & installer .dmg
 ├── requirements.txt     # Python afhankelijkheden
 └── README.md            # Documentatie
@@ -93,8 +96,10 @@ python3 main.py
 Voer de geautomatiseerde pytest suite uit met coverage rapportage:
 
 ```bash
-pytest --cov=src --cov-report=term-missing
+QT_QPA_PLATFORM=offscreen pytest --cov=src --cov-report=term-missing
 ```
+
+De tests kunnen ook op Linux in offscreen-modus draaien. De echte `hdiutil`, Finder- en Keychain-integratie moet op macOS worden gecontroleerd.
 
 ---
 

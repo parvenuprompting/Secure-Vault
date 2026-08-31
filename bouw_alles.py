@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -18,6 +19,13 @@ def controleer_vereisten() -> None:
     """Controleert of benodigde tools en assets aanwezig zijn vóór het bouwen."""
     print("🔍 Controleer afhankelijkheden en assets...")
 
+    if platform.system() != "Darwin":
+        print(
+            "❌ FOUT: SecureVault-builds kunnen alleen op macOS worden gemaakt. "
+            "PyInstaller en dmgbuild kunnen hier niet betrouwbaar een macOS-app bouwen."
+        )
+        sys.exit(1)
+
     # Check dmgbuild module
     try:
         import dmgbuild  # noqa: F401
@@ -30,7 +38,7 @@ def controleer_vereisten() -> None:
         sys.exit(1)
 
     # Check pyinstaller CLI
-    if not shutil.which("pyinstaller"):
+    if not shutil.which("pyinstaller") and not shutil.which("pyinstaller.exe"):
         print(
             "❌ FOUT: 'pyinstaller' is niet gevonden in je PATH.\n"
             "   Voer het volgende commando uit om het te installeren:\n"
@@ -62,7 +70,9 @@ def bouw_app() -> None:
     add_data_arg = f"{ASSETS_DIR}:{ASSETS_DIR}"
 
     cmd = [
-        "pyinstaller",
+        sys.executable,
+        "-m",
+        "PyInstaller",
         "--noconfirm",
         "--onedir",
         "--windowed",

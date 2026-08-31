@@ -3,6 +3,11 @@ build/
 dist/
 *.spec
 
+# Lokale test/build output
+.pytest_cache/
+coverage.xml
+htmlcov/
+
 # Negeer gegenereerde DMG en SparseBundle bestanden/installers
 *.dmg
 *.sparsebundle

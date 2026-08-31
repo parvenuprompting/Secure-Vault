@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Python instellen
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Dependencies installeren
+        run: python -m pip install -r requirements.txt
+      - name: Tests draaien
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest --cov=src --cov-report=term-missing
+      - name: Python compile check
+        run: python -m compileall -q main.py src tests
+
+  macos-guard:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Python instellen
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Dependencies installeren
+        run: python -m pip install -r requirements.txt
+      - name: App import smoke test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: >-
+          python -c "from src.vault_engine import VaultEngine; from src.ui import KluisApp;
+          print('macOS modules importeren: OK')"
+
+  build-script-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Buildscript compile check
+        run: python -m py_compile bouw_alles.py
+      - name: Buildscript weigert non-macOS veilig
+        run: |
+          set +e
+          output=$(python bouw_alles.py 2>&1)
+          code=$?
+          test "$code" -eq 1
+          printf '%s\n' "$output" | grep -F "alleen op macOS"
+          test ! -e temp_settings.py
+          test ! -e dist
+          exit 0
+
