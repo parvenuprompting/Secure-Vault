@@ -3,15 +3,17 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
-from typing import Optional, List
+from typing import Optional, List, Dict, Set
 
 from PySide6.QtCore import QSize, Qt, QThread, Signal, QSettings, QTimer
 from PySide6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QGuiApplication, QAction
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -22,6 +24,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QTableWidget,
+    QTableWidgetItem,
     QTabWidget,
     QTextEdit,
     QToolButton,
@@ -96,6 +100,40 @@ class WorkerThread(QThread):
             allow_overwrite=self.allow_overwrite,
         )
         self.finish_signal.emit(success, msg)
+
+
+# --- WORKER THREAD VOOR BROWSER SCAN ---
+class VaultScanWorker(QThread):
+    progress_signal = Signal(str)
+    finish_signal = Signal(list)
+    error_signal = Signal(str)
+
+    def __init__(
+        self,
+        search_roots: Optional[List[str]] = None,
+        filter_securevault_only: bool = True,
+    ):
+        super().__init__()
+        self.search_roots = search_roots
+        self.filter_securevault_only = filter_securevault_only
+        self.engine = VaultEngine()
+        self._is_cancelled = False
+
+    def cancel(self) -> None:
+        self._is_cancelled = True
+
+    def run(self) -> None:
+        try:
+            results = self.engine.scan_vaults_on_system(
+                search_roots=self.search_roots,
+                filter_securevault_only=self.filter_securevault_only,
+                progress_callback=lambda msg: self.progress_signal.emit(msg),
+            )
+            if not self._is_cancelled:
+                self.finish_signal.emit(results)
+        except Exception as e:
+            if not self._is_cancelled:
+                self.error_signal.emit(str(e))
 
 
 # --- HELPER WIDGET FOR INPUTS ---
@@ -846,6 +884,486 @@ class ManageVaultTab(QWidget):
         self.lock_vault_path(mount_point)
 
 
+# --- WIDGET TAB 3: KLUIS BROWSER ---
+class VaultBrowserTab(QWidget):
+    def __init__(self, parent_app: KluisApp):
+        super().__init__()
+        self.app = parent_app
+        self.engine = VaultEngine()
+        self.worker: Optional[VaultScanWorker] = None
+        self.all_vaults: List[Dict[str, object]] = []
+        self.custom_folder_path: Optional[str] = None
+        self.setup_ui()
+
+    def setup_ui(self) -> None:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        # 1. SCOPE & SCAN CONTROLS
+        lbl_scope = QLabel("🔍 ZOEKLOCATIES & SCAN")
+        lbl_scope.setObjectName("inputLabel")
+        layout.addWidget(lbl_scope)
+
+        scope_row = QHBoxLayout()
+        scope_row.setSpacing(12)
+
+        self.chk_home = QCheckBox("🏠 Homemap (~)")
+        self.chk_home.setChecked(True)
+        self.chk_home.setToolTip("Doorzoek je persoonlijke gebruikersmap en documenten")
+        scope_row.addWidget(self.chk_home)
+
+        self.chk_volumes = QCheckBox("💾 Externe Volumes (/Volumes)")
+        self.chk_volumes.setChecked(os.path.exists("/Volumes"))
+        self.chk_volumes.setToolTip("Doorzoek aangesloten externe schijven en USB-sticks")
+        scope_row.addWidget(self.chk_volumes)
+
+        self.btn_custom_folder = QPushButton("📁 Kies Map...")
+        self.btn_custom_folder.setObjectName("browseBtn")
+        self.btn_custom_folder.setToolTip("Voeg een specifieke extra zoekmap toe")
+        self.btn_custom_folder.setCursor(Qt.PointingHandCursor)
+        self.btn_custom_folder.clicked.connect(self.browse_custom_folder)
+        scope_row.addWidget(self.btn_custom_folder)
+
+        scope_row.addStretch()
+
+        self.btn_scan = QPushButton("🔍 SCAN KLUIZEN")
+        self.btn_scan.setObjectName("actionBtn")
+        self.btn_scan.setCursor(Qt.PointingHandCursor)
+        self.btn_scan.setToolTip("Zoek alle kluizen op je systeem via Spotlight en opslaglocaties")
+        self.btn_scan.clicked.connect(self.start_scan)
+        scope_row.addWidget(self.btn_scan)
+
+        self.btn_cancel_scan = QPushButton("❌ ANNULEREN")
+        self.btn_cancel_scan.setObjectName("cancelBtn")
+        self.btn_cancel_scan.setCursor(Qt.PointingHandCursor)
+        self.btn_cancel_scan.clicked.connect(self.cancel_scan)
+        self.btn_cancel_scan.hide()
+        scope_row.addWidget(self.btn_cancel_scan)
+
+        layout.addLayout(scope_row)
+
+        self.lbl_custom_folder = QLabel("")
+        self.lbl_custom_folder.setObjectName("strengthLabel")
+        self.lbl_custom_folder.hide()
+        layout.addWidget(self.lbl_custom_folder)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.hide()
+        layout.addWidget(self.progress_bar)
+
+        # 2. FILTERBALK & RESULTATENTELLER
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(10)
+
+        self.inp_filter = QLineEdit()
+        self.inp_filter.setPlaceholderText("🔎 Filter op naam of locatie...")
+        self.inp_filter.textChanged.connect(self.on_filter_changed)
+        filter_row.addWidget(self.inp_filter, stretch=1)
+
+        self.lbl_count = QLabel("Klik op 'Scan Kluizen' om te starten.")
+        self.lbl_count.setObjectName("strengthLabel")
+        filter_row.addWidget(self.lbl_count)
+
+        layout.addLayout(filter_row)
+
+        # 3. RESULTATENTABEL
+        self.table = QTableWidget()
+        self.table.setObjectName("browserTable")
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels([
+            "Kluis Naam", "Locatie", "Type", "Omvang", "🔑 Sleutelhanger", "Status"
+        ])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setAlternatingRowColors(False)
+        self.table.setMinimumHeight(240)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.show_context_menu)
+        self.table.itemSelectionChanged.connect(self.on_selection_changed)
+        self.table.itemDoubleClicked.connect(self.on_item_double_clicked)
+
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.setColumnWidth(0, 160)
+
+        layout.addWidget(self.table)
+
+        # 4. DIRECT ONTGRENDELEN SECTIE
+        layout.addSpacing(6)
+        lbl_unlock_sec = QLabel("🔓 DIRECT ONTGRENDELEN")
+        lbl_unlock_sec.setObjectName("sectionTitle")
+        layout.addWidget(lbl_unlock_sec)
+
+        self.lbl_selected = QLabel("Selecteer een kluis uit de lijst om direct te openen.")
+        self.lbl_selected.setObjectName("strengthLabel")
+        layout.addWidget(self.lbl_selected)
+
+        self.inp_pass = ModernInput(
+            "WACHTWOORD",
+            is_password=True,
+            tooltip="Voer het wachtwoord van deze kluis in (of automatisch geladen via Keychain)",
+        )
+        layout.addWidget(self.inp_pass)
+
+        self.chk_keychain = QCheckBox("🔑 Wachtwoord opslaan in macOS Sleutelhangertoegang (Keychain)")
+        self.chk_keychain.setObjectName("keychainChk")
+        layout.addWidget(self.chk_keychain)
+        layout.addSpacing(4)
+
+        btn_row = QHBoxLayout()
+        self.btn_unlock = QPushButton("🔓 ONTGRENDELEN IN FINDER")
+        self.btn_unlock.setObjectName("actionBtn")
+        self.btn_unlock.setCursor(Qt.PointingHandCursor)
+        self.btn_unlock.setEnabled(False)
+        self.btn_unlock.clicked.connect(self.unlock_selected)
+        btn_row.addWidget(self.btn_unlock)
+
+        self.btn_lock = QPushButton("🔒 VERGRENDELEN (UITWERPEN)")
+        self.btn_lock.setObjectName("cancelBtn")
+        self.btn_lock.setCursor(Qt.PointingHandCursor)
+        self.btn_lock.setEnabled(False)
+        self.btn_lock.clicked.connect(self.lock_selected)
+        btn_row.addWidget(self.btn_lock)
+
+        self.btn_reveal = QPushButton("📁 TOON IN FINDER")
+        self.btn_reveal.setObjectName("browseBtn")
+        self.btn_reveal.setCursor(Qt.PointingHandCursor)
+        self.btn_reveal.setEnabled(False)
+        self.btn_reveal.clicked.connect(self.reveal_selected)
+        btn_row.addWidget(self.btn_reveal)
+
+        layout.addLayout(btn_row)
+        layout.addStretch()
+
+        scroll.setWidget(content)
+        outer = QVBoxLayout()
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
+        self.setLayout(outer)
+
+    def browse_custom_folder(self) -> None:
+        d = QFileDialog.getExistingDirectory(self, "Kies zoekmap voor kluizen")
+        if d:
+            self.custom_folder_path = d
+            self.lbl_custom_folder.setText(f"📁 Extra zoekmap: {d}")
+            self.lbl_custom_folder.show()
+
+    def start_scan(self) -> None:
+        self.app.reset_auto_lock_timer()
+        roots: List[str] = []
+        if self.chk_home.isChecked():
+            roots.append(os.path.expanduser("~"))
+        if self.chk_volumes.isChecked() and os.path.exists("/Volumes"):
+            roots.append("/Volumes")
+        if self.custom_folder_path and os.path.exists(self.custom_folder_path):
+            roots.append(self.custom_folder_path)
+
+        if not roots:
+            QMessageBox.warning(self, "Geen Locaties", "Selecteer ten minste één zoeklocatie.")
+            return
+
+        self.btn_scan.setEnabled(False)
+        self.btn_cancel_scan.show()
+        self.progress_bar.show()
+        self.lbl_count.setText("Kluizen zoeken op het systeem...")
+
+        self.worker = VaultScanWorker(search_roots=roots)
+        self.worker.progress_signal.connect(lambda msg: self.lbl_count.setText(msg))
+        self.worker.finish_signal.connect(self.on_scan_finished)
+        self.worker.error_signal.connect(self.on_scan_error)
+        self.worker.start()
+
+    def cancel_scan(self) -> None:
+        if self.worker and self.worker.isRunning():
+            self.worker.cancel()
+        self.btn_scan.setEnabled(True)
+        self.btn_cancel_scan.hide()
+        self.progress_bar.hide()
+        self.lbl_count.setText("Scan geannuleerd.")
+
+    def on_scan_finished(self, results: List[Dict[str, object]]) -> None:
+        self.btn_scan.setEnabled(True)
+        self.btn_cancel_scan.hide()
+        self.progress_bar.hide()
+        self.all_vaults = results
+        self.populate_table(results)
+        self.lbl_count.setText(f"🎉 {len(results)} kluis(en) gevonden.")
+
+    def on_scan_error(self, err: str) -> None:
+        self.btn_scan.setEnabled(True)
+        self.btn_cancel_scan.hide()
+        self.progress_bar.hide()
+        self.lbl_count.setText(f"❌ Fout tijdens scannen: {err}")
+
+    def populate_table(self, vaults: List[Dict[str, object]]) -> None:
+        self.table.setRowCount(len(vaults))
+        for row, v in enumerate(vaults):
+            name_item = QTableWidgetItem(str(v.get("name", "")))
+            name_item.setData(Qt.ItemDataRole.UserRole, v)
+
+            path_item = QTableWidgetItem(str(v.get("path", "")))
+            path_item.setToolTip(str(v.get("path", "")))
+
+            ext_item = QTableWidgetItem(str(v.get("ext", "")))
+            ext_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            size_item = QTableWidgetItem(str(v.get("size", "")))
+            size_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            kc_item = QTableWidgetItem("🔑 Opgeslagen" if v.get("keychain") else "—")
+            kc_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            mounted = bool(v.get("mounted"))
+            status_item = QTableWidgetItem("🟢 Geopend" if mounted else "🔒 Vergrendeld")
+            status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            self.table.setItem(row, 0, name_item)
+            self.table.setItem(row, 1, path_item)
+            self.table.setItem(row, 2, ext_item)
+            self.table.setItem(row, 3, size_item)
+            self.table.setItem(row, 4, kc_item)
+            self.table.setItem(row, 5, status_item)
+
+    def on_filter_changed(self, text: str) -> None:
+        q = text.strip().lower()
+        if not q:
+            self.populate_table(self.all_vaults)
+            self.lbl_count.setText(f"Totaal: {len(self.all_vaults)} kluis(en).")
+            return
+        filtered = [
+            v for v in self.all_vaults
+            if q in str(v.get("name", "")).lower() or q in str(v.get("path", "")).lower()
+        ]
+        self.populate_table(filtered)
+        self.lbl_count.setText(f"Gefilterd: {len(filtered)} van {len(self.all_vaults)} kluis(en).")
+
+    def get_selected_vault_data(self) -> Optional[Dict[str, object]]:
+        current_row = self.table.currentRow()
+        if current_row < 0:
+            return None
+        item = self.table.item(current_row, 0)
+        if not item:
+            return None
+        data = item.data(Qt.ItemDataRole.UserRole)
+        if isinstance(data, dict):
+            return data
+        return None
+
+    def on_selection_changed(self) -> None:
+        v = self.get_selected_vault_data()
+        if not v:
+            self.lbl_selected.setText("Selecteer een kluis uit de lijst om direct te openen.")
+            self.btn_unlock.setEnabled(False)
+            self.btn_lock.setEnabled(False)
+            self.btn_reveal.setEnabled(False)
+            return
+
+        path = str(v.get("path", ""))
+        name = str(v.get("name", ""))
+        mounted = bool(v.get("mounted"))
+
+        self.lbl_selected.setText(f"Geselecteerd: <b>{name}</b> ({path})")
+        self.btn_reveal.setEnabled(True)
+        self.btn_unlock.setEnabled(not mounted)
+        self.btn_lock.setEnabled(mounted)
+
+        kc_pw = VaultEngine.get_keychain_password(path)
+        if kc_pw:
+            self.inp_pass.setText(kc_pw)
+            self.chk_keychain.setChecked(True)
+        else:
+            self.inp_pass.setText("")
+            self.chk_keychain.setChecked(False)
+
+    def on_item_double_clicked(self, item: QTableWidgetItem) -> None:
+        v = self.get_selected_vault_data()
+        if not v:
+            return
+        mounted = bool(v.get("mounted"))
+        mount_point = str(v.get("mount_point", ""))
+        if mounted and mount_point and os.path.exists(mount_point):
+            subprocess.run(["open", mount_point])
+        elif not mounted:
+            if self.inp_pass.text():
+                self.unlock_selected()
+            else:
+                self.inp_pass.input.setFocus()
+
+    def unlock_selected(self) -> None:
+        self.app.reset_auto_lock_timer()
+        v = self.get_selected_vault_data()
+        if not v:
+            QMessageBox.warning(self, "Geen Selectie", "Selecteer eerst een kluis.")
+            return
+
+        path = str(v.get("path", ""))
+        password = self.inp_pass.text()
+
+        if not password:
+            QMessageBox.warning(self, "Wachtwoord Vereist", "Voer het wachtwoord voor deze kluis in.")
+            self.inp_pass.input.setFocus()
+            return
+
+        success, msg, mount_point = self.engine.mount_vault(path, password)
+        if success:
+            if self.chk_keychain.isChecked():
+                self.engine.save_keychain_password(path, password)
+            else:
+                self.engine.delete_keychain_password(path)
+
+            add_recent_vault(path)
+            self.app.tab_manage.populate_recents()
+            self.app.tab_manage.refresh_mounts()
+            self.refresh_browser_status()
+
+            if mount_point and os.path.exists(mount_point):
+                subprocess.run(["open", mount_point])
+
+            QMessageBox.information(
+                self,
+                "Kluis Geopend",
+                f"🎉 Kluis '{v.get('name')}' is succesvol ontgrendeld!\n\nLocatie in Finder:\n{mount_point}",
+            )
+        else:
+            QMessageBox.critical(self, "Ontgrendelen Mislukt", msg)
+
+    def lock_selected(self) -> None:
+        self.app.reset_auto_lock_timer()
+        v = self.get_selected_vault_data()
+        if not v:
+            return
+        path = str(v.get("path", ""))
+        active = self.engine.get_active_mounts()
+        mount_point = None
+        for m, vp in active.items():
+            if os.path.abspath(vp) == os.path.abspath(path):
+                mount_point = m
+                break
+
+        if not mount_point:
+            mount_point = str(v.get("mount_point", ""))
+
+        if not mount_point or not os.path.exists(mount_point):
+            QMessageBox.information(self, "Al Vergrendeld", "Deze kluis is niet meer gekoppeld.")
+            self.refresh_browser_status()
+            return
+
+        success, msg = self.engine.unmount_vault(mount_point)
+        if success:
+            QMessageBox.information(self, "Vergrendeld", msg)
+        else:
+            reply = QMessageBox.question(
+                self,
+                "Vergrendelen Mislukt",
+                f"{msg}\n\nWil je het uitwerpen forceren?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                f_success, f_msg = self.engine.unmount_vault(mount_point, force=True)
+                if f_success:
+                    QMessageBox.information(self, "Geforceerd Vergrendeld", f_msg)
+                else:
+                    QMessageBox.critical(self, "Fout", f_msg)
+
+        self.app.tab_manage.refresh_mounts()
+        self.refresh_browser_status()
+
+    def reveal_selected(self) -> None:
+        v = self.get_selected_vault_data()
+        if v and os.path.exists(str(v.get("path", ""))):
+            subprocess.run(["open", "-R", str(v.get("path"))])
+
+    def refresh_browser_status(self) -> None:
+        active_mounts = self.engine.get_active_mounts()
+        mount_lookup = {os.path.abspath(vp): mp for mp, vp in active_mounts.items()}
+
+        for v in self.all_vaults:
+            p = os.path.abspath(str(v.get("path", "")))
+            if p in mount_lookup:
+                v["mounted"] = True
+                v["mount_point"] = mount_lookup[p]
+            else:
+                v["mounted"] = False
+                v["mount_point"] = ""
+
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item:
+                v = item.data(Qt.ItemDataRole.UserRole)
+                if isinstance(v, dict):
+                    p = os.path.abspath(str(v.get("path", "")))
+                    is_mounted = p in mount_lookup
+                    v["mounted"] = is_mounted
+                    v["mount_point"] = mount_lookup.get(p, "")
+                    status_item = self.table.item(row, 5)
+                    if status_item:
+                        status_item.setText("🟢 Geopend" if is_mounted else "🔒 Vergrendeld")
+
+        self.on_selection_changed()
+
+    def show_context_menu(self, pos) -> None:
+        v = self.get_selected_vault_data()
+        if not v:
+            return
+
+        menu = QMenu(self)
+        path = str(v.get("path", ""))
+        mounted = bool(v.get("mounted"))
+
+        if not mounted:
+            act_unlock = QAction("🔓 Ontgrendelen in Finder", self)
+            act_unlock.triggered.connect(self.unlock_selected)
+            menu.addAction(act_unlock)
+        else:
+            act_open = QAction("📂 Openen in Finder", self)
+            act_open.triggered.connect(lambda: subprocess.run(["open", str(v.get("mount_point") or path)]))
+            menu.addAction(act_open)
+
+            act_lock = QAction("🔒 Vergrendelen (Uitwerpen)", self)
+            act_lock.triggered.connect(self.lock_selected)
+            menu.addAction(act_lock)
+
+        menu.addSeparator()
+
+        act_reveal = QAction("📁 Toon bestand in Finder", self)
+        act_reveal.triggered.connect(self.reveal_selected)
+        menu.addAction(act_reveal)
+
+        act_copy = QAction("📋 Kopieer kluispad", self)
+        act_copy.triggered.connect(lambda: QGuiApplication.clipboard().setText(path))
+        menu.addAction(act_copy)
+
+        if v.get("keychain"):
+            menu.addSeparator()
+            act_del_kc = QAction("🗑️ Verwijder wachtwoord uit Keychain", self)
+            act_del_kc.triggered.connect(lambda: self.delete_keychain_entry(path))
+            menu.addAction(act_del_kc)
+
+        menu.exec(self.table.mapToGlobal(pos))
+
+    def delete_keychain_entry(self, path: str) -> None:
+        self.engine.delete_keychain_password(path)
+        QMessageBox.information(self, "Sleutelhanger", "Wachtwoord is verwijderd uit macOS Keychain.")
+        self.refresh_browser_status()
+
+
 # --- HOOFD APPLICATIE VENSTER ---
 class KluisApp(QWidget):
     def __init__(self):
@@ -936,9 +1454,11 @@ class KluisApp(QWidget):
 
         self.tab_create = CreateVaultTab(self)
         self.tab_manage = ManageVaultTab(self)
+        self.tab_browser = VaultBrowserTab(self)
 
         self.tabs.addTab(self.tab_create, "➕ Nieuwe Kluis")
         self.tabs.addTab(self.tab_manage, "🔓 Kluis Beheren")
+        self.tabs.addTab(self.tab_browser, "🔍 Kluis Browser")
 
         main_layout.addWidget(self.tabs)
         self.setLayout(main_layout)
@@ -961,6 +1481,8 @@ class KluisApp(QWidget):
         unmounted = VaultEngine().unmount_all_vaults()
         if unmounted > 0:
             self.tab_manage.refresh_mounts()
+            if hasattr(self, "tab_browser"):
+                self.tab_browser.refresh_browser_status()
 
     def apply_styles(self) -> None:
         self.setStyleSheet(stylesheet())

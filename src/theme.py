@@ -225,7 +225,39 @@ QPushButton#cancelBtn:hover {
     border-color: #111827;
 }
 
-/* --- LISTS & MENUS --- */
+/* --- LISTS, TABLES & MENUS --- */
+QTableWidget#browserTable {
+    background-color: #FFFFFF;
+    border: 1px solid #D1D5DB;
+    border-radius: 4px;
+    gridline-color: #F3F4F6;
+    color: #111827;
+    font-size: 12px;
+    selection-background-color: #F3F4F6;
+    selection-color: #111827;
+}
+
+QTableWidget#browserTable::item {
+    padding: 6px 10px;
+    border-bottom: 1px solid #F3F4F6;
+}
+
+QTableWidget#browserTable::item:selected {
+    background-color: #F3F4F6;
+    color: #111827;
+    font-weight: 600;
+}
+
+QHeaderView::section {
+    background-color: #F9FAFB;
+    color: #374151;
+    font-weight: 700;
+    font-size: 11px;
+    border: none;
+    border-bottom: 1px solid #D1D5DB;
+    padding: 8px 10px;
+}
+
 QListWidget#mountsList {
     background-color: #FFFFFF;
     border: 1px solid #D1D5DB;

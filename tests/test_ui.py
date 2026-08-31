@@ -39,9 +39,10 @@ class TestKluisAppUI:
         app.show()
 
         assert app.windowTitle().startswith("SecureVault")
-        assert app.tabs.count() == 2
+        assert app.tabs.count() == 3
         assert app.tabs.tabText(0) == "➕ Nieuwe Kluis"
         assert app.tabs.tabText(1) == "🔓 Kluis Beheren"
+        assert app.tabs.tabText(2) == "🔍 Kluis Browser"
         assert app.combo_autolock.count() == 4
 
     def test_modern_input_components(self, qtbot: pytest.FixtureRequest) -> None:

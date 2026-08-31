@@ -10,11 +10,11 @@
 
 De applicatie is geschreven in **Python 3** met **PySide6 (Qt)** en maakt gebruik van native macOS-beveiligingstools (`hdiutil`) met **APFS** en **AES‑256 encryptie**. Geen externe encryptielibraries, geen cloud opslag, geen vendor lock‑in — alles blijft 100% lokaal op je Mac.
 
-[![Version](https://img.shields.io/badge/Version-v2.1.0-blue.svg)](https://github.com/parvenuprompting/secure-vault-v2)
+[![Version](https://img.shields.io/badge/Version-v2.2.0-blue.svg)](https://github.com/parvenuprompting/secure-vault-v2)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20Only-lightgrey?logo=apple&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Qt](https://img.shields.io/badge/Qt-PySide6-41CD52?logo=qt&logoColor=white)](https://www.qt.io/)
-[![Tests](https://img.shields.io/badge/Tests-53%20passed-brightgreen?logo=pytest&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
+[![Tests](https://img.shields.io/badge/Tests-66%20passed-brightgreen?logo=pytest&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
 [![Encryption](https://img.shields.io/badge/Encryption-AES--256-red?logo=apple-pay&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
 [![Keychain](https://img.shields.io/badge/Keychain-macOS%20Keychain-success?logo=apple&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -29,13 +29,21 @@ De applicatie is geschreven in **Python 3** met **PySide6 (Qt)** en maakt gebrui
 * **🔐 AES‑256 Encryptie & APFS**
   Gebruikt de industriestandaard voor encryptie via macOS `hdiutil` op het moderne APFS bestandssysteem.
 
+* **🔍 Systeem-Brede Kluis Browser (Nieuw in v2.2.0)**
+  Vindt en toont automatisch alle SecureVault-kluizen op je Mac via supersnelle macOS Spotlight (`mdfind`) indexing en gerichte bestandsscanning.
+  - Doorzoek je persoonlijke gebruikersmap (`~`), aangesloten externe schijven (`/Volumes`) of kies een specifieke map.
+  - Real-time filteren en zoeken op naam en bestandspad.
+  - Direct overzicht van bestandsgrootte, type (`.dmg` / `.sparsebundle`), Keychain-status en actuele open/vergrendeld status.
+  - 1-klik ontgrendelen met Keychain-autofill of direct wachtwoord invoeren.
+  - Uitgebreid contextmenu: ontgrendelen, vergrendelen, direct tonen in Finder of Keychain-item wissen.
+
 * **◼ Monochroom Zwart-Wit UI**
   Een strak, contrastrijk zwart-wit thema zonder achtergrondafbeelding. Scherpe typografie, dunne randen en een donkere terminal-logbox. De interface is volledig responsief: de inhoud schaalt mee bij elk vensterformaat — van gesplitst split-view tot volledig scherm.
 
 * **🪟 Altijd Gemaximaliseerd Opstarten**
   De applicatie opent automatisch gemaximaliseerd, zodat alle formuliervelden direct volledig zichtbaar zijn zonder handmatig vergroten.
 
-* **🎨 Nieuw Native macOS App-Icoon**
+* **🎨 Native macOS App-Icoon**
   Minimalistische titanium vault-dial op een matzwart macOS-squircle. Het icoon is als multi-resolutie `.icns` gecompileerd en verschijnt correct in het Dock, Finder, Spotlight en alle andere macOS-contexten.
 
 * **📂 3 Kluisindelingen (Read-Only, Read-Write & SparseBundle)**
@@ -72,13 +80,14 @@ De applicatie is geschreven in **Python 3** met **PySide6 (Qt)** en maakt gebrui
 Secure-Vault/
 ├── main.py              # Hoofd-entrypoint (start de PySide6 applicatie, gemaximaliseerd)
 ├── src/
-│   ├── ui.py            # GUI-componenten (CreateVaultTab, ManageVaultTab, Auto-Lock, Keychain, Dialogs)
-│   ├── theme.py         # Monochroom zwart-wit stylesheet
-│   └── vault_engine.py  # Kernlogica voor hdiutil, APFS, UDZO/UDRW/UDSB, Keychain, mount & unmount
+│   ├── ui.py            # GUI-componenten (CreateVaultTab, ManageVaultTab, VaultBrowserTab, Dialogs)
+│   ├── theme.py         # Monochroom zwart-wit stylesheet inclusief tabellen
+│   └── vault_engine.py  # Kernlogica voor hdiutil, APFS, Keychain, Spotlight scanning, mount & unmount
 ├── assets/              # App-icoon (logo.png, logo.icns) en installer-achtergrond
 ├── conftest.py          # Pytest fixtures & headless Qt configuratie
-├── tests/               # Unit- & Pytest-Qt GUI testsuite
+├── tests/               # Unit- & Pytest-Qt GUI testsuite (66 tests)
 │   ├── test_vault_engine.py
+│   ├── test_vault_browser.py
 │   └── test_ui.py
 ├── .github/workflows/ci.yml # Linux + macOS import/test-controle
 ├── bouw_alles.py        # Script voor het bouwen van .app & installer .dmg
@@ -92,7 +101,7 @@ Secure-Vault/
 
 ### Via de .dmg installer (aanbevolen)
 
-Download de nieuwste `SecureVault_v2.1.0.dmg`, open het bestand en sleep `SecureVault.app` naar je `Applications` map.
+Download de nieuwste `SecureVault_v2.2.0.dmg`, open het bestand en sleep `SecureVault.app` naar je `Applications` map.
 
 ### Vanuit de broncode
 
@@ -110,7 +119,7 @@ python3 main.py
 
 ## 🧪 Tests & Coverage
 
-Voer de geautomatiseerde pytest suite uit (53 tests):
+Voer de geautomatiseerde pytest suite uit (66 tests):
 
 ```bash
 QT_QPA_PLATFORM=offscreen .venv/bin/pytest -v

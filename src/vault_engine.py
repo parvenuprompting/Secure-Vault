@@ -6,7 +6,8 @@ import uuid
 import logging
 import subprocess
 import threading
-from typing import Callable, Dict, Optional, Tuple
+import re
+from typing import Callable, Dict, Optional, Tuple, List, Set
 
 logger = logging.getLogger("VaultEngine")
 
@@ -562,3 +563,157 @@ class VaultEngine:
         for m in inactive:
             del self._active_mounts[m]
         return dict(self._active_mounts)
+
+    @classmethod
+    def get_all_keychain_vaults(cls) -> List[str]:
+        """
+        Haalt alle opgeslagen kluispadden op uit macOS Keychain onder service 'SecureVault'.
+        """
+        try:
+            res = subprocess.run(
+                ["security", "dump-keychain"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if res.returncode != 0 or not res.stdout:
+                return []
+            vaults: List[str] = []
+            items = res.stdout.split("keychain: ")
+            for item in items:
+                if '"svce"<blob>="SecureVault"' in item:
+                    m = re.search(r'"acct"<blob>="([^"]+)"', item)
+                    if m:
+                        v_path = m.group(1).strip()
+                        if v_path and v_path not in vaults:
+                            vaults.append(v_path)
+            return vaults
+        except Exception as e:
+            logger.warning("Fout bij ophalen kluizen uit Keychain: %s", e)
+            return []
+
+    @classmethod
+    def is_vault_encrypted(cls, vault_path: str) -> bool:
+        """
+        Controleert of een .dmg of .sparsebundle versleuteld is met hdiutil.
+        """
+        if not vault_path or not os.path.exists(vault_path):
+            return False
+        try:
+            res = subprocess.run(
+                ["hdiutil", "isencrypted", vault_path],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            return res.returncode == 0
+        except Exception:
+            return False
+
+    def scan_vaults_on_system(
+        self,
+        search_roots: Optional[List[str]] = None,
+        filter_securevault_only: bool = True,
+        progress_callback: Optional[Callable[[str], None]] = None,
+    ) -> List[Dict[str, object]]:
+        """
+        Doorzoekt het lokale systeem naar .dmg en .sparsebundle kluizen.
+        Gebruikt mdfind (Spotlight) voor snelle scanning met gerichte directory fallback.
+        """
+        if search_roots is None:
+            home_dir = os.path.expanduser("~")
+            search_roots = [home_dir]
+            if os.path.exists("/Volumes"):
+                search_roots.append("/Volumes")
+
+        # Alleen bestaande mappen meenemen
+        valid_roots = [os.path.abspath(r) for r in search_roots if os.path.exists(r) and os.path.isdir(r)]
+        if not valid_roots:
+            return []
+
+        discovered_paths: Set[str] = set()
+        keychain_vaults = set(self.get_all_keychain_vaults())
+
+        # Voeg altijd kluizen toe die al in de Keychain geregistreerd staan
+        for kp in keychain_vaults:
+            if os.path.exists(kp):
+                discovered_paths.add(os.path.abspath(kp))
+
+        # 1. Snelle Spotlight scan (mdfind) per root
+        for root in valid_roots:
+            if progress_callback:
+                progress_callback(f"Spotlight doorzoeken in {root}...")
+            try:
+                cmd = ["mdfind", "-onlyin", root, 'kMDItemFSName == "*.dmg" || kMDItemFSName == "*.sparsebundle"']
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=15, check=False)
+                if res.returncode == 0 and res.stdout:
+                    for line in res.stdout.splitlines():
+                        candidate = line.strip()
+                        if candidate and (candidate.endswith(".dmg") or candidate.endswith(".sparsebundle")) and os.path.exists(candidate):
+                            discovered_paths.add(os.path.abspath(candidate))
+            except Exception as e:
+                logger.debug("mdfind mislukt voor root %s: %s", root, e)
+
+        # 2. Fallback / direct scanning voor mappen die Spotlight mogelijk overslaat (of als mdfind leeg was)
+        excluded_dir_names = {
+            ".Trash", ".git", "node_modules", "venv", ".venv", "Library",
+            ".cache", ".npm", ".cargo", "DerivedData", ".gradle", "build", "dist",
+            ".metadata_never_index", "System", "Applications"
+        }
+
+        if not discovered_paths:
+            for root in valid_roots:
+                if progress_callback:
+                    progress_callback(f"Mappen scannen in {root}...")
+                try:
+                    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+                        dirnames[:] = [d for d in dirnames if d not in excluded_dir_names and not d.startswith(".")]
+
+                        for d in list(dirnames):
+                            if d.endswith(".sparsebundle"):
+                                full_sb = os.path.join(dirpath, d)
+                                discovered_paths.add(os.path.abspath(full_sb))
+                                dirnames.remove(d)
+
+                        for f in filenames:
+                            if f.endswith(".dmg") and not f.startswith("."):
+                                discovered_paths.add(os.path.abspath(os.path.join(dirpath, f)))
+                except Exception as e:
+                    logger.debug("os.walk fout in %s: %s", root, e)
+
+        # 3. Filter en metadata opbouwen
+        active_mounts = self.get_active_mounts()
+        mount_lookup = {os.path.abspath(v_path): m_point for m_point, v_path in active_mounts.items()}
+
+        results: List[Dict[str, object]] = []
+        system_prefixes = ("/System", "/usr", "/bin", "/sbin", "/Applications")
+
+        for p in sorted(discovered_paths):
+            if any(p.startswith(sp) for sp in system_prefixes) and not any(r.startswith(sp) for r in valid_roots for sp in system_prefixes if p.startswith(sp)):
+                continue
+
+            is_in_keychain = (p in keychain_vaults) or bool(self.get_keychain_password(p))
+
+            if filter_securevault_only and not is_in_keychain:
+                if not self.is_vault_encrypted(p):
+                    continue
+
+            name = os.path.basename(p)
+            ext = ".sparsebundle" if p.endswith(".sparsebundle") else ".dmg"
+            size_str = self.get_vault_disk_size(p)
+            is_mounted = p in mount_lookup
+            mount_point = mount_lookup.get(p, "")
+
+            results.append({
+                "path": p,
+                "name": name,
+                "ext": ext,
+                "size": size_str,
+                "keychain": is_in_keychain,
+                "mounted": is_mounted,
+                "mount_point": mount_point,
+            })
+
+        return results
