@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.vault_engine import VaultEngine
+from src.theme import stylesheet
 
 
 # --- QSETTINGS HELPER FUNCTIES ---
@@ -890,128 +891,13 @@ class KluisApp(QWidget):
             self.tab_manage.refresh_mounts()
 
     def apply_styles(self) -> None:
-        self.setStyleSheet(
-            """
-            QWidget#MainWindow { background-color: #121418; }
-            QWidget { color: #EEE; font-family: ".AppleSystemUIFont", "Helvetica Neue", sans-serif; }
-            
-            QTabWidget::pane { border: 1px solid #444; border-radius: 8px; background: rgba(20, 20, 20, 0.75); }
-            QTabBar::tab { background: rgba(35, 35, 35, 0.8); border: 1px solid #444; padding: 8px 18px; border-top-left-radius: 6px; border-top-right-radius: 6px; color: #AAA; font-weight: bold; }
-            QTabBar::tab:selected { background: rgba(60, 60, 60, 0.95); color: #FFF; border-bottom-color: #4CAF50; }
-            QTabBar::tab:hover { color: #FFF; }
-
-            QMessageBox { background-color: #232323; }
-            QMessageBox QLabel { color: #FFF; font-size: 13px; }
-            QMessageBox QPushButton { background-color: #383838; color: #FFF; padding: 6px 18px; border-radius: 5px; border: 1px solid #555; }
-            QMessageBox QPushButton:hover { background-color: #4A4A4A; }
-
-            QCheckBox#keychainChk { color: #DDD; font-size: 11px; margin-top: 4px; }
-            QCheckBox#keychainChk::indicator { width: 14px; height: 14px; }
-            
-            QLabel#title { font-size: 22px; font-weight: bold; color: #FFF; }
-            QLabel#subtitle { font-size: 11px; color: #888; letter-spacing: 0.5px; }
-            QLabel#inputLabel { color: #BBB; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; }
-            QLabel#sectionTitle { color: #4CAF50; font-size: 12px; font-weight: bold; letter-spacing: 0.5px; margin-top: 6px; }
-            QLabel#strengthLabel { font-size: 11px; color: #AAA; margin-bottom: 4px; }
-            QLabel#matchLabel { font-size: 11px; color: #AAA; }
-            
-            QLineEdit, QComboBox { 
-                background: rgba(25, 25, 25, 0.75); 
-                border: 1px solid #444; 
-                padding: 8px; 
-                border-radius: 6px; 
-                color: #FFF; 
-                font-size: 13px; 
-            }
-            QLineEdit:focus, QComboBox:focus { border: 1px solid #4CAF50; background: rgba(25, 25, 25, 0.95); }
-            QComboBox QAbstractItemView { background-color: #2A2A2A; color: #FFF; selection-background-color: #4CAF50; }
-            
-            QPushButton#browseBtn { 
-                background: rgba(60, 60, 60, 0.85); 
-                border: 1px solid #555; 
-                padding: 8px 14px; 
-                border-radius: 6px; 
-                color: #DDD; 
-                font-weight: 500;
-            }
-            QPushButton#browseBtn:hover { background: rgba(80, 80, 80, 0.95); color: #FFF; }
-            
-            QToolButton#togglePwBtn {
-                background: rgba(45, 45, 45, 0.85);
-                border: 1px solid #444;
-                border-radius: 6px;
-                padding: 5px 9px;
-                font-size: 13px;
-            }
-            QToolButton#togglePwBtn:hover { background: rgba(65, 65, 65, 1.0); }
-            
-            QPushButton#actionBtn { 
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4CAF50, stop:1 #388E3C); 
-                color: #FFF; 
-                font-weight: bold; 
-                padding: 11px; 
-                font-size: 13px; 
-                border-radius: 8px; 
-                border: none;
-            }
-            QPushButton#actionBtn:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #53B957, stop:1 #3D9941); }
-            QPushButton#actionBtn:disabled { background: #333; color: #666; }
-
-            QPushButton#cancelBtn { 
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #D32F2F, stop:1 #B71C1C); 
-                color: #FFF; 
-                font-weight: bold; 
-                padding: 11px; 
-                font-size: 13px; 
-                border-radius: 8px; 
-                border: none;
-            }
-            QPushButton#cancelBtn:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #E53935, stop:1 #C62828); }
-
-            QListWidget#mountsList {
-                background: rgba(15, 15, 15, 0.8);
-                border: 1px solid #444;
-                border-radius: 6px;
-                padding: 6px;
-                color: #EEE;
-                font-size: 12px;
-            }
-            QListWidget#mountsList::item:selected { background: rgba(76, 175, 80, 0.4); border-radius: 4px; }
-
-            QMenu { background-color: #2A2A2A; border: 1px solid #555; color: #FFF; }
-            QMenu::item:selected { background-color: #4CAF50; color: #FFF; }
-
-            QToolButton#helpBtn { 
-                background: rgba(50, 50, 50, 0.8); 
-                color: #AAA; 
-                border-radius: 12px; 
-                font-weight: bold; 
-                width: 24px; 
-                height: 24px; 
-                border: 1px solid #555; 
-            }
-            QToolButton#helpBtn:hover { background: rgba(85, 85, 85, 1.0); color: #FFF; border-color: #777; }
-
-            QTextEdit { 
-                background: rgba(12, 16, 12, 0.85); 
-                border: 1px solid #2E3B2E; 
-                color: #4EFA65; 
-                font-family: "Menlo", "Courier New", monospace; 
-                font-size: 11px; 
-                border-radius: 6px; 
-                margin-top: 4px; 
-            }
-            
-            QProgressBar { background: rgba(30, 30, 30, 0.8); border-radius: 4px; height: 6px; }
-            QProgressBar::chunk { background: #4CAF50; border-radius: 4px; }
-        """
-        )
+        self.setStyleSheet(stylesheet())
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
 
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#121418"))
+        painter.fillRect(self.rect(), QColor("#F4F1E9"))
 
         if os.path.exists(self.path_bg):
             pixmap = QPixmap(self.path_bg)

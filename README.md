@@ -28,6 +28,9 @@ De applicatie is geschreven in **Python 3** met **PySide6 (Qt)** en maakt gebrui
 * **🔐 AES‑256 Encryptie & APFS**
   Gebruikt de industriestandaard voor encryptie via macOS `hdiutil` op het moderne APFS bestandssysteem.
 
+* **◼ Monochrome Editorial UI**
+  Een rustige zwart-wit interface met papierachtergrond, inktkleur, veel witruimte, dunne lijnen en één terughoudend oranje accent. De functionaliteit blijft ongewijzigd; alleen de presentatie is aangepast.
+
 * **📂 3 Kluisindelingen (Read-Only, Read-Write & SparseBundle)**
   - 📦 **Gecomprimeerd (`UDZO`)**: Vaste omvang, gecomprimeerd en alleen-lezen (ideaal voor veilige archivering).
   - 📝 **Lees / Schrijf (`UDRW`)**: Bestanden toevoegen of verwijderen direct vanuit macOS Finder.
