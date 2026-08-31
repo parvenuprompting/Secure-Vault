@@ -343,6 +343,12 @@ class CreateVaultTab(QWidget):
 
         # Automatisch kopiëren naar klembord
         QGuiApplication.clipboard().setText(new_pw)
+        if hasattr(self, "clipboard_clear_timer"):
+            self.clipboard_clear_timer.stop()
+        self.clipboard_clear_timer = QTimer(self)
+        self.clipboard_clear_timer.setSingleShot(True)
+        self.clipboard_clear_timer.timeout.connect(lambda: self.clear_generated_clipboard(new_pw))
+        self.clipboard_clear_timer.start(60_000)
 
         # Waarschuwing / Informatiewens over het bewaren en noteren van het wachtwoord
         box = QMessageBox(self)
@@ -356,6 +362,12 @@ class CreateVaultTab(QWidget):
             "<i>Als je dit wachtwoord vergeet, is het technisch <u>onmogelijk</u> om de bestanden in de kluis te herstellen!</i>"
         )
         box.exec()
+
+    def clear_generated_clipboard(self, generated_password: str) -> None:
+        """Wis het gegenereerde wachtwoord alleen als het nog op het clipboard staat."""
+        clipboard = QGuiApplication.clipboard()
+        if clipboard.text() == generated_password:
+            clipboard.clear()
 
     def validate_passwords(self) -> None:
         pw = self.inp_pass.text()
@@ -458,6 +470,10 @@ class CreateVaultTab(QWidget):
         self.worker.log_signal.connect(self.log)
         self.worker.finish_signal.connect(self.on_finish)
         self.worker.start()
+
+        # Wis de UI-kopieën zodra stdin aan de worker is doorgegeven.
+        self.inp_pass.setText("")
+        self.inp_pass_confirm.setText("")
 
     def cancel_process(self) -> None:
         if self.worker and self.worker.isRunning():
