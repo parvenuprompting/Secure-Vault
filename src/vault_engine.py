@@ -50,15 +50,59 @@ class VaultEngine:
         return f"hdiutil fout: {stderr.strip()}"
 
     @staticmethod
-    def send_macos_notification(title: str, message: str) -> None:
-        """
-        Verstuurt een native macOS notificatie via osascript. Faalt stil als notificaties uit staan.
-        """
+    def _escape_applescript_text(value: str) -> str:
+        """Escape tekst voordat die in een AppleScript-string terechtkomt."""
+        return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ").replace("\r", " ")
+
+    @classmethod
+    def send_macos_notification(cls, title: str, message: str) -> None:
+        """Verstuurt veilig een native macOS-notificatie; notificaties blokkeren nooit de kernactie."""
         try:
-            cmd = ["osascript", "-e", f'display notification "{message}" with title "{title}"']
-            subprocess.run(cmd, capture_output=True, timeout=3)
+            script = cls.create_notification_script(title, message)
+            subprocess.run(["osascript", "-e", script], capture_output=True, timeout=3, check=False)
         except Exception as e:
             logger.debug("Could not send macOS notification: %s", e)
+
+    @classmethod
+    def run_command_with_timeout(cls, cmd: list[str], input_text: Optional[str] = None, timeout: float = 300.0) -> subprocess.CompletedProcess[str]:
+        """Run een extern macOS-commando met een harde timeout en zonder shell."""
+        return subprocess.run(cmd, input=input_text, capture_output=True, text=True, timeout=timeout, check=False)
+
+    @staticmethod
+    def clear_password_field(widget: object) -> None:
+        """Wis een Qt-wachtwoordveld zonder een waarde terug te geven."""
+        clear = getattr(widget, "clear", None)
+        if callable(clear):
+            clear()
+        else:
+            logger.debug("Password field did not expose clear()")
+
+    @staticmethod
+    def clear_clipboard_if_matches(value: str, clipboard: object) -> None:
+        """Wis alleen een clipboard dat nog exact de tijdelijke waarde bevat."""
+        text = getattr(clipboard, "text", lambda: "")()
+        if text == value:
+            clear = getattr(clipboard, "clear", None)
+            if callable(clear):
+                clear()
+
+    @staticmethod
+    def clear_password_buffer(password_buffer: bytearray) -> None:
+        """Oversrijf een expliciete byte-buffer; CPython-stringkopieën vallen buiten garantie."""
+        for index in range(len(password_buffer)):
+            password_buffer[index] = 0
+        password_buffer.clear()
+
+    @staticmethod
+    def create_notification_script(title: str, message: str) -> str:
+        """Bouw de veilig ge-escapete AppleScripttekst voor tests en uitvoering."""
+        safe_title = VaultEngine._escape_applescript_text(title)
+        safe_message = VaultEngine._escape_applescript_text(message)
+        return f'display notification "{safe_message}" with title "{safe_title}"'
+
+    @staticmethod
+    def _password_bytes(password: str) -> bytearray:
+        return bytearray(password.encode("utf-8"))
 
     @staticmethod
     def save_keychain_password(vault_path: str, password: str) -> bool:
@@ -352,6 +396,8 @@ class VaultEngine:
                 process.stdin.flush()
                 process.stdin.close()
 
+            deadline = threading.Event()
+            elapsed = 0.0
             while process.poll() is None:
                 if cancel_event and cancel_event.is_set():
                     log("⚠️ Annuleren ontvangen... Bezig met stopzetten van processen...")
@@ -362,9 +408,19 @@ class VaultEngine:
                         process.kill()
                     self.cleanup(dmg_final)
                     return False, "Proces geannuleerd door gebruiker."
-                threading.Event().wait(0.2)
+                if elapsed >= 300:
+                    log("❌ hdiutil reageert niet binnen de maximale tijd.")
+                    process.terminate()
+                    try:
+                        process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                    self.cleanup(dmg_final)
+                    return False, "De encryptie duurde te lang en is veilig gestopt."
+                deadline.wait(0.2)
+                elapsed += 0.2
 
-            stdout, stderr = process.communicate()
+            stdout, stderr = process.communicate(timeout=5)
 
             if process.returncode != 0:
                 self.cleanup(dmg_final)
@@ -423,7 +479,15 @@ class VaultEngine:
                 process.stdin.flush()
                 process.stdin.close()
 
-            stdout, stderr = process.communicate()
+            try:
+                stdout, stderr = process.communicate(timeout=60)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                return False, "Het ontgrendelen duurde te lang en is veilig gestopt.", ""
 
             if process.returncode != 0:
                 parsed_err = self.parse_hdiutil_error(stderr)

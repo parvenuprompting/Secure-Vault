@@ -149,6 +149,16 @@ class TestPasswordStrengthAndErrorParsing:
         assert score_range[0] <= score <= score_range[1]
         assert isinstance(msg, str)
 
+    def test_notification_script_escapes_apple_script_text(self) -> None:
+        script = VaultEngine.create_notification_script('Titel "test"', 'Regel 1\\nRegel 2')
+        assert '\\"test\\"' in script
+        assert '\n' not in script
+
+    def test_clear_password_buffer(self) -> None:
+        buffer = bytearray(b'secret')
+        VaultEngine.clear_password_buffer(buffer)
+        assert buffer == bytearray()
+
     def test_parse_hdiutil_error(self) -> None:
         assert "Wachtwoord is onjuist" in VaultEngine.parse_hdiutil_error("checksum incorrect")
         assert "Wachtwoord is onjuist" in VaultEngine.parse_hdiutil_error("authentication failed")
