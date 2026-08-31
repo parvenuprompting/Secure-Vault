@@ -279,6 +279,7 @@ class VaultEngine:
         format_type: str = "UDZO",
         progress_callback: Optional[Callable[[str], None]] = None,
         cancel_event: Optional[threading.Event] = None,
+        allow_overwrite: bool = False,
     ) -> Tuple[bool, str]:
         """
         Maakt een geëncrypteerde AES-256 kluis aan (UDZO, UDRW of UDSB/SparseBundle) via hdiutil.
@@ -308,8 +309,11 @@ class VaultEngine:
             if cancel_event and cancel_event.is_set():
                 return False, "Proces geannuleerd door gebruiker."
 
-            if os.path.exists(dmg_final):
-                log("⚠️ Bestaande kluis met dezelfde naam wordt overschreven...")
+            if os.path.lexists(dmg_final):
+                if not allow_overwrite:
+                    log("⚠️ Er bestaat al een kluis met deze naam. De bestaande kluis blijft behouden.")
+                    return False, f"Bestaat al: '{dmg_final}'. Kies een andere naam of bevestig overschrijven."
+                log("⚠️ Overschrijven is expliciet bevestigd; bestaande kluis wordt verwijderd.")
                 self.cleanup(dmg_final)
 
             log(f"🔨 Stap 3: Kluis aanmaken ({self.FORMAT_DESCRIPTIONS.get(format_type, format_type)})...")

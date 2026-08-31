@@ -67,6 +67,7 @@ class WorkerThread(QThread):
         name: str,
         password: str,
         format_type: str = "UDZO",
+        allow_overwrite: bool = False,
     ):
         super().__init__()
         self.source = source
@@ -74,6 +75,7 @@ class WorkerThread(QThread):
         self.name = name
         self.password = password
         self.format_type = format_type
+        self.allow_overwrite = allow_overwrite
         self.cancel_event = threading.Event()
         self.engine = VaultEngine()
 
@@ -89,6 +91,7 @@ class WorkerThread(QThread):
             format_type=self.format_type,
             progress_callback=lambda m: self.log_signal.emit(m),
             cancel_event=self.cancel_event,
+            allow_overwrite=self.allow_overwrite,
         )
         self.finish_signal.emit(success, msg)
 
@@ -202,6 +205,11 @@ class CreateVaultTab(QWidget):
             tooltip="Locatie waar het kluisbestand wordt opgeslagen",
         )
         self.inp_dest.setText(os.path.expanduser("~/Desktop"))
+        self.allow_overwrite = QCheckBox("Bestaande kluis overschrijven (maakt geen automatische backup)")
+        self.allow_overwrite.setObjectName("overwriteChk")
+        self.allow_overwrite.setChecked(False)
+        self.allow_overwrite.setToolTip("Laat dit uitgeschakeld om bestaande kluizen altijd te beschermen")
+        layout.addWidget(self.allow_overwrite)
         layout.addWidget(self.inp_dest)
 
         self.inp_name = ModernInput(
@@ -446,7 +454,7 @@ class CreateVaultTab(QWidget):
         self.btn_cancel.setEnabled(True)
         self.btn_cancel.show()
 
-        self.worker = WorkerThread(source, dest, name, pw, format_type=format_type)
+        self.worker = WorkerThread(source, dest, name, pw, format_type=format_type, allow_overwrite=self.allow_overwrite.isChecked())
         self.worker.log_signal.connect(self.log)
         self.worker.finish_signal.connect(self.on_finish)
         self.worker.start()

@@ -248,6 +248,18 @@ class TestCreateVault:
         assert "-format" in cmd_args
         assert format_type in cmd_args
 
+    def test_create_vault_refuses_existing_vault(self, engine: VaultEngine, sample_dir: str, tmp_path: pytest.TempPathFactory) -> None:
+        dest = tmp_path / "out"
+        dest.mkdir()
+        existing = dest / "ExistingVault.dmg"
+        existing.write_bytes(b"existing vault")
+
+        success, msg = engine.create_vault(sample_dir, str(dest), "ExistingVault", "StrongP@ss123!")
+
+        assert success is False
+        assert "Bestaat al" in msg
+        assert existing.read_bytes() == b"existing vault"
+
     def test_create_vault_cancellation(self, engine: VaultEngine, sample_dir: str, tmp_path: pytest.TempPathFactory) -> None:
         dest = tmp_path / "out"
         dest.mkdir()
