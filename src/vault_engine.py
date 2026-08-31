@@ -220,7 +220,11 @@ class VaultEngine:
         if not os.path.isdir(dest_folder):
             raise ValueError(f"Gekozen doel is geen map: '{dest_folder}'")
 
-        if not os.access(dest_folder, os.W_OK):
+        source_real = os.path.realpath(source)
+        dest_real = os.path.realpath(dest_folder)
+        if source_real == dest_real or os.path.commonpath([source_real, dest_real]) == source_real:
+            raise ValueError("Doelmap mag niet gelijk zijn aan of binnen de bronmap liggen.")
+        if not os.access(dest_real, os.W_OK):
             raise PermissionError(f"Geen schrijfrechten in doelmap: '{dest_folder}'")
 
     def calculate_size_mb(self, source_path: str) -> int:

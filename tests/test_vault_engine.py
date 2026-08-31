@@ -270,6 +270,14 @@ class TestCreateVault:
         assert "Bestaat al" in msg
         assert existing.read_bytes() == b"existing vault"
 
+    def test_validate_paths_rejects_destination_inside_source(self, engine: VaultEngine, tmp_path: pytest.TempPathFactory) -> None:
+        source = tmp_path / "source"
+        destination = source / "output"
+        destination.mkdir(parents=True)
+
+        with pytest.raises(ValueError, match="binnen de bronmap"):
+            engine.validate_paths(str(source), str(destination))
+
     def test_create_vault_cancellation(self, engine: VaultEngine, sample_dir: str, tmp_path: pytest.TempPathFactory) -> None:
         dest = tmp_path / "out"
         dest.mkdir()

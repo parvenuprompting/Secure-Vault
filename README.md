@@ -1,6 +1,10 @@
 # 🔒 SecureVault for Mac
 
+> Lokale beveiligingskluis voor macOS. De encryptie wordt uitgevoerd door Apple `hdiutil`; SecureVault is een gebruiksinterface en geen zelfstandig cryptografisch protocol.
+
 ![Screenshot van SecureVault](screenshot.png)
+
+> **Security note:** SecureVault helpt lokale macOS-gegevens te beschermen met Apple’s versleutelde disk images. De beveiliging hangt ook af van macOS, je accountbeveiliging, FileVault, Keychain-instellingen, fysieke toegang en de gekozen wachtwoordsterkte. Gebruik de app niet als vervanging voor een onafhankelijke security-audit of back-upstrategie.
 
 [![CI](https://github.com/parvenuprompting/secure-vault-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/parvenuprompting/secure-vault-v2/actions/workflows/ci.yml)
 
@@ -54,8 +58,8 @@ De applicatie is geschreven in **Python 3** met **PySide6 (Qt)** en maakt gebrui
 * **💬 Nederlandstalige Fouthandeling & Notificaties**
   Duidelijke, vriendelijke foutmeldingen (bijv. verkeerd wachtwoord, in gebruik door Finder) en native macOS notificaties bij acties.
 
-* **🛡️ Zero-Trust Security & Opschoning**
-  Geen cloud, geen telemetry of externe servers. Gevoelige gegevens in het geheugen worden na gebruik overschreven (`bytearray` zeroing).
+* **🛡️ Lokale beveiliging en veilige defaults**
+  Geen cloud, telemetry of externe servers. Bestaande kluizen worden standaard niet overschreven, clipboard-wachtwoorden worden na 60 seconden gewist als ze nog ongewijzigd zijn en bekende byte-buffers worden opgeruimd. Volledige zeroization van Python/Qt-geheugen kan niet worden gegarandeerd.
 
 ---
 

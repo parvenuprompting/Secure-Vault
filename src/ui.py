@@ -977,3 +977,20 @@ class KluisApp(QWidget):
         )
         msg.setIcon(QMessageBox.Information)
         msg.exec()
+
+    def closeEvent(self, event) -> None:
+        """Probeer actieve kluizen veilig te ontkoppelen vóór het venster sluit."""
+        active_mounts = VaultEngine().get_active_mounts()
+        if active_mounts:
+            choice = QMessageBox.question(
+                self,
+                "Actieve kluizen",
+                f"Er zijn nog {len(active_mounts)} kluis(en) geopend. Nu veilig vergrendelen?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if choice != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+            VaultEngine().unmount_all_vaults()
+        event.accept()
