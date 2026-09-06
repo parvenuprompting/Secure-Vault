@@ -4,19 +4,19 @@
 
 > **Security note:** SecureVault helpt lokale macOS-gegevens te beschermen met Apple's versleutelde disk images. De beveiliging hangt ook af van macOS, je accountbeveiliging, FileVault, Keychain-instellingen, fysieke toegang en de gekozen wachtwoordsterkte. Gebruik de app niet als vervanging voor een onafhankelijke security-audit of back-upstrategie.
 
-[![CI](https://github.com/parvenuprompting/secure-vault-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/parvenuprompting/secure-vault-v2/actions/workflows/ci.yml)
+[![CI](https://github.com/parvenuprompting/Secure-Vault/actions/workflows/ci.yml/badge.svg)](https://github.com/parvenuprompting/Secure-Vault/actions/workflows/ci.yml)
 
 **SecureVault** is een moderne, minimalistische desktopapplicatie voor macOS waarmee je eenvoudig gevoelige mappen kunt beveiligen in geëncrypteerde kluizen (`.dmg` disk images en `.sparsebundle` meegroeiende pakketten).
 
 De applicatie is geschreven in **Python 3** met **PySide6 (Qt)** en maakt gebruik van native macOS-beveiligingstools (`hdiutil`) met **APFS** en **AES‑256 encryptie**. Geen externe encryptielibraries, geen cloud opslag, geen vendor lock‑in — alles blijft 100% lokaal op je Mac.
 
-[![Version](https://img.shields.io/badge/Version-v2.2.0-blue.svg)](https://github.com/parvenuprompting/secure-vault-v2)
-[![Platform](https://img.shields.io/badge/Platform-macOS%20Only-lightgrey?logo=apple&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
+[![Version](https://img.shields.io/badge/Version-v2.2.0-blue.svg)](https://github.com/parvenuprompting/Secure-Vault)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20Only-lightgrey?logo=apple&logoColor=white)](https://github.com/parvenuprompting/Secure-Vault)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Qt](https://img.shields.io/badge/Qt-PySide6-41CD52?logo=qt&logoColor=white)](https://www.qt.io/)
-[![Tests](https://img.shields.io/badge/Tests-66%20passed-brightgreen?logo=pytest&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
-[![Encryption](https://img.shields.io/badge/Encryption-AES--256-red?logo=apple-pay&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
-[![Keychain](https://img.shields.io/badge/Keychain-macOS%20Keychain-success?logo=apple&logoColor=white)](https://github.com/parvenuprompting/secure-vault-v2)
+[![Tests](https://img.shields.io/badge/Tests-66%20passed-brightgreen?logo=pytest&logoColor=white)](https://github.com/parvenuprompting/Secure-Vault)
+[![Encryption](https://img.shields.io/badge/Encryption-AES--256-red?logo=apple-pay&logoColor=white)](https://github.com/parvenuprompting/Secure-Vault)
+[![Keychain](https://img.shields.io/badge/Keychain-macOS%20Keychain-success?logo=apple&logoColor=white)](https://github.com/parvenuprompting/Secure-Vault)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > [!IMPORTANT]
