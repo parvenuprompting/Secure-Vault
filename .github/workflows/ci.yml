@@ -10,11 +10,16 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.11', '3.12']
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Systeembibliotheken voor Qt installeren (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3
       - name: Python instellen
         uses: actions/setup-python@v5
         with:
@@ -53,6 +58,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Python instellen
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Buildscript compile check
         run: python -m py_compile bouw_alles.py
       - name: Buildscript weigert non-macOS veilig
@@ -65,4 +74,5 @@ jobs:
           test ! -e temp_settings.py
           test ! -e dist
           exit 0
+
 
